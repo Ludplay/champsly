@@ -1,0 +1,459 @@
+{
+  "info": {
+    "name": "Truco Platform Backend API",
+    "_postman_id": "4c2f3f80-2b1d-4f3b-930c-7f89b2e8f5d6",
+    "description": "Postman collection for the Truco Platform backend routes. All routes are versioned under /api/v1 (see Phase 1.7); a Get Players (v2) request is included under Players to show the v2 envelope response from Phase 1.8.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4001",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Index",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", ""]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Players",
+      "item": [
+        {
+          "name": "Get Players",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/get-players",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "get-players"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Players (v2)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v2/get-players",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v2", "get-players"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Player",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Player Name\",\n  \"extra\": \"Additional info\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/player",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "player"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Read Player",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/player/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "player", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Player",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Player Name\",\n  \"extra\": \"Updated additional info\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/player/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "player", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Player",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/player/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "player", ":id"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Tournaments",
+      "item": [
+        {
+          "name": "Get Tournaments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/get-tournaments",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "get-tournaments"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Tournament",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Tournament Name\",\n  \"groups_quantity\": 4,\n  \"phases_quantity\": 2,\n  \"status\": \"pending\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tournament",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tournament"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Read Tournament",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tournament/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tournament", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Tournament",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Tournament Name\",\n  \"groups_quantity\": 5,\n  \"phases_quantity\": 3,\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tournament/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tournament", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Tournament",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tournament/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tournament", ":id"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Phases",
+      "item": [
+        {
+          "name": "Get Phases",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/get-phases",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "get-phases"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Phase",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tournament_id\": 1,\n  \"name\": \"Phase 1\",\n  \"status\": \"pending\",\n  \"number\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/phase",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "phase"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Read Phase",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/phase/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "phase", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Phase",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tournament_id\": 1,\n  \"name\": \"Updated Phase\",\n  \"status\": \"active\",\n  \"number\": 2\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/phase/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "phase", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Phase",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/phase/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "phase", ":id"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Groups",
+      "item": [
+        {
+          "name": "Get Groups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/get-groups",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "get-groups"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tournament Groups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tournament/:tournamentId/groups",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tournament", ":tournamentId", "groups"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Group",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tournament_id\": 1,\n  \"name\": \"Group A\",\n  \"number\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/group",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "group"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Read Group",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/group/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "group", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Group",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tournament_id\": 1,\n  \"name\": \"Updated Group\",\n  \"number\": 2\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/group/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "group", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Group",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/group/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "group", ":id"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Matchs",
+      "item": [
+        {
+          "name": "Get Matchs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/get-matchs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "get-matchs"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tournament Matchs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tournament/:tournamentId/matchs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tournament", ":tournamentId", "matchs"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Match",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phase_id\": 1,\n  \"group_id\": 1,\n  \"round_number\": 1,\n  \"player1_id\": 1,\n  \"player2_id\": 2,\n  \"status\": \"scheduled\",\n  \"winner_player_id\": null,\n  \"player1_score\": 0,\n  \"player2_score\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/match",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "match"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Read Match",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/match/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "match", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Match",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phase_id\": 1,\n  \"group_id\": 1,\n  \"round_number\": 2,\n  \"player1_id\": 1,\n  \"player2_id\": 2,\n  \"status\": \"completed\",\n  \"winner_player_id\": 1,\n  \"player1_score\": 3,\n  \"player2_score\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/match/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "match", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Match",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/match/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "match", ":id"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
