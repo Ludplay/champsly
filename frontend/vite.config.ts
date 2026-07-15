@@ -16,7 +16,6 @@ export default defineConfig({
       '/api': {
         target: 'http://truco-platform-backend:4001',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },
   },

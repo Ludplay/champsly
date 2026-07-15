@@ -19,6 +19,20 @@ npx sequelize db:migrate
 
 No test suite is configured. The app runs on port **4001**.
 
+## Docker Dev Environment
+
+The backend normally runs inside Docker Compose (`docker-compose.yml` at the monorepo root), not as a bare host process. The `truco-platform-backend` service bind-mounts `./backend:/app` (so source edits are picked up live by `nodemon` via `npm run dev`), **but `node_modules` is a separate named volume** (`backend_node_modules:/app/node_modules`), not part of that bind mount.
+
+This means running `npm install <pkg>` on the host only updates the host's `node_modules` — it has **no effect** on the running container, which keeps using its own volume's stale `node_modules`. After adding/updating any dependency:
+
+```bash
+docker compose exec truco-platform-backend npm install
+```
+
+Skipping this step causes the container to crash-loop on `MODULE_NOT_FOUND` for the new package the moment `nodemon` restarts it (which happens immediately, since the bind-mounted source file requiring that package has already changed). A plain `docker compose build`/`up` does **not** fix this either — Docker does not re-seed an already-existing named volume from a rebuilt image.
+
+Port 4001 on the host is this container, not a locally-run `node app.js` — testing against `localhost:4001` exercises the real Docker container.
+
 ## Architecture
 
 This is a Node.js/Express REST API for managing Truco card game tournaments. It follows a clean architecture with three layers connected via **Awilix** dependency injection:

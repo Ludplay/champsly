@@ -126,13 +126,13 @@ Platform            → Docker Compose → Kubernetes manifests
   - Mount both in the top-level router: `router.use('/api/v1', v1Routes)` and `router.use('/api/v2', v2Routes)`.
   - *Why? Because* without the `/v1`/`/v2` split already in place from 1.7, there is no seam to hang a second behavior on, and changing `/get-players` would force one of three worse options: (a) change the response in place and silently break the frontend the moment it deploys separately from this change, (b) branch inside the single existing controller on a header or query param (`if (req.query.version === '2') {...}`), turning one controller into an ad-hoc, untested version switch that only gets messier with every future change, or (c) copy the entire `routes.js` file and every controller it references into a parallel structure just to isolate the one endpoint that changed, duplicating 20+ untouched routes to change one. With the version-prefixed folders, the *only* new code is the one overridden route and its controller — every other route is inherited for free via `router.use(v1Router)`, which is the entire point of doing 1.7 first.
 
-- [ ] **1.9 Rate limiting — `express-rate-limit`**
+[✅] **1.9 Rate limiting — `express-rate-limit`**
   - Install `express-rate-limit`.
   - Apply a global limiter in `app.js` (e.g. 100 requests/minute per IP) and a stricter limiter on write routes (`POST`/`PUT`/`DELETE`).
   - Use the default in-memory store for now.
   - *Why? Because* without a rate limit, a single client — malicious or just a buggy retry loop — can exhaust the DB connection pool or run up costs with unbounded requests. An in-memory store is the right choice for a single process, but it stops being accurate the moment more than one process handles traffic: each instance counts independently instead of sharing one count, so a client can get roughly `N × limit` through against `N` instances. That gap isn't fixed here — it's revisited in Phase 9.6 once the real deployment actually has an edge that sees all traffic (API Gateway throttling), which is the layer where a shared limit can actually be enforced.
 
-- [ ] **1.10 Docker Compose for local dev**
+- [✅] **1.10 Docker Compose for local dev**
   - Create `docker-compose.yml` at project root with services: `api`, `db` (Postgres), and a placeholder `zookeeper`+`kafka` (to be used later).
   - Update `config-sequelize.js` to read host from env so both Docker and localhost work.
   - *Why? Because* "works on my machine" is not a reproducible environment. Docker Compose makes the DB, the Kafka broker, and the API start in a single command for any contributor and mirrors the topology that Kubernetes will manage later — the closer local dev is to production, the fewer environment-specific bugs you'll encounter.

@@ -46,8 +46,9 @@ const readMatchController = require('../../../../controllers/matchs/read-match.c
 const updateMatchController = require('../../../../controllers/matchs/update-match.ctrl');
 const deleteMatchController = require('../../../../controllers/matchs/delete-match.ctrl');
 
-router.get('/', (req) => {
+router.get('/', (req, res) => {
     req.log.info('here at index');
+    res.sendStatus(200);
 });
 
 // Player routes

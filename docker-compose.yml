@@ -35,6 +35,28 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  # Placeholder for Phase 4 (Event-Driven Architecture with Kafka) — not yet
+  # consumed by the backend, just started alongside the rest of the stack.
+  truco-platform-zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  truco-platform-kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - truco-platform-zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: truco-platform-zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://truco-platform-kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
 
 volumes:
   postgres_data:

@@ -37,3 +37,6 @@ Thumbs.db
 
 # Stray/unmanaged local artifact — root-owned leftover, not project source
 .backend/
+
+# Backups in general
+BACKUPS/

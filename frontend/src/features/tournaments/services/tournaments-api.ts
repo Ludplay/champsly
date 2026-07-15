@@ -5,7 +5,7 @@ import type { Tournament, TournamentInput } from '../types/tournaments';
 // Create an axios instance for API calls.
 // This allows us to configure the base URL and other settings in one place.
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? '/api',
+  baseURL: import.meta.env.VITE_API_URL ?? '/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
