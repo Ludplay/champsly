@@ -21,12 +21,12 @@ No test suite is configured. The app runs on port **4001**.
 
 ## Docker Dev Environment
 
-The backend normally runs inside Docker Compose (`docker-compose.yml` at the monorepo root), not as a bare host process. The `truco-platform-backend` service bind-mounts `./backend:/app` (so source edits are picked up live by `nodemon` via `npm run dev`), **but `node_modules` is a separate named volume** (`backend_node_modules:/app/node_modules`), not part of that bind mount.
+The backend normally runs inside Docker Compose (`docker-compose.yml` at the monorepo root), not as a bare host process. The `champsly-backend` service bind-mounts `./backend:/app` (so source edits are picked up live by `nodemon` via `npm run dev`), **but `node_modules` is a separate named volume** (`backend_node_modules:/app/node_modules`), not part of that bind mount.
 
 This means running `npm install <pkg>` on the host only updates the host's `node_modules` — it has **no effect** on the running container, which keeps using its own volume's stale `node_modules`. After adding/updating any dependency:
 
 ```bash
-docker compose exec truco-platform-backend npm install
+docker compose exec champsly-backend npm install
 ```
 
 Skipping this step causes the container to crash-loop on `MODULE_NOT_FOUND` for the new package the moment `nodemon` restarts it (which happens immediately, since the bind-mounted source file requiring that package has already changed). A plain `docker compose build`/`up` does **not** fix this either — Docker does not re-seed an already-existing named volume from a rebuilt image.
@@ -35,7 +35,7 @@ Port 4001 on the host is this container, not a locally-run `node app.js` — tes
 
 ## Architecture
 
-This is a Node.js/Express REST API for managing Truco card game tournaments. It follows a clean architecture with three layers connected via **Awilix** dependency injection:
+This is a Node.js/Express REST API for managing tournaments (Champsly). It follows a clean architecture with three layers connected via **Awilix** dependency injection:
 
 ```
 Request → Controller → Interactor (business logic) → Repository → Sequelize Model → PostgreSQL
@@ -50,7 +50,7 @@ Request → Controller → Interactor (business logic) → Repository → Sequel
 
 **DI wiring:** `src/infra/config/register.js` registers every class with Awilix as `.scoped()` (one instance per request). Controllers access the container via `req.container.resolve('interactorName')`. When adding a new feature, register both the repository and all interactors in that file.
 
-**Routes:** All routes are defined in `src/infra/http/routes.js`. CORS is locked to `http://127.0.0.1:5174` (the frontend dev server).
+**Routes:** Routes are defined under `src/infra/http/routes/v1/index.ts` and `src/infra/http/routes/v2/index.ts`. CORS is locked to `http://127.0.0.1:5173` (the frontend dev server).
 
 ## Domain Model
 
@@ -64,6 +64,6 @@ The key business logic is `GenerateGroupsPhaseMatchesInteractor` (`src/interacto
 
 ## Database Configuration
 
-The app uses the config at `src/infra/config/config-sequelize.js` (PostgreSQL, host `truco-platform-db`, db `truco`). This is also what Sequelize CLI uses (see `.sequelizerc`). The root `config/config.json` is unused/stale.
+The app uses the config at `src/infra/config/config-sequelize.js` (PostgreSQL, host `champsly-db`, db `champsly`). This is also what Sequelize CLI uses (see `.sequelizerc`). The root `config/config.json` is unused/stale.
 
 For local dev outside Docker, update the host in `config-sequelize.js` to `localhost` or `127.0.0.1`.

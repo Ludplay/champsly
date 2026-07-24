@@ -1,4 +1,4 @@
 #!/bin/sh
 
 echo "Running migrations..."
-docker compose exec truco-platform-backend npm run migrate
+docker compose exec champsly-backend npm run migrate

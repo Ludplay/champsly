@@ -14,7 +14,7 @@ export default defineConfig({
     host: '0.0.0.0',
     proxy: {
       '/api': {
-        target: 'http://truco-platform-backend:4001',
+        target: 'http://champsly-backend:4001',
         changeOrigin: true,
       },
     },

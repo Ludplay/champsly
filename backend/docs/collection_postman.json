@@ -1,8 +1,8 @@
 {
   "info": {
-    "name": "Truco Platform Backend API",
+    "name": "Champsly Backend API",
     "_postman_id": "4c2f3f80-2b1d-4f3b-930c-7f89b2e8f5d6",
-    "description": "Postman collection for the Truco Platform backend routes. All routes are versioned under /api/v1 (see Phase 1.7); a Get Players (v2) request is included under Players to show the v2 envelope response from Phase 1.8.",
+    "description": "Postman collection for the Champsly backend routes. All routes are versioned under /api/v1 (see Phase 1.7); a Get Players (v2) request is included under Players to show the v2 envelope response from Phase 1.8.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [

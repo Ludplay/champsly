@@ -1,6 +1,6 @@
 
 services:
-  truco-platform-frontend:
+  champsly-frontend:
     build: ./frontend
     ports:
       - "5173:5173"
@@ -8,28 +8,28 @@ services:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
     depends_on:
-      - truco-platform-backend
+      - champsly-backend
 
 
-  truco-platform-backend:
+  champsly-backend:
     build: ./backend
     ports:
       - "4001:4001"
     environment:
-      - DATABASE_URL=postgres://user:pass@truco-platform-db:5432/truco
+      - DATABASE_URL=postgres://user:pass@champsly-db:5432/champsly
     volumes:
       - ./backend:/app
       - backend_node_modules:/app/node_modules
     command: npm run dev
     depends_on:
-      - truco-platform-db
+      - champsly-db
 
-  truco-platform-db:
+  champsly-db:
     image: postgres:15
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: pass
-      POSTGRES_DB: truco
+      POSTGRES_DB: champsly
     ports:
       - "5432:5432"
     volumes:
@@ -37,23 +37,23 @@ services:
 
   # Placeholder for Phase 4 (Event-Driven Architecture with Kafka) — not yet
   # consumed by the backend, just started alongside the rest of the stack.
-  truco-platform-zookeeper:
+  champsly-zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
 
-  truco-platform-kafka:
+  champsly-kafka:
     image: confluentinc/cp-kafka:7.5.0
     depends_on:
-      - truco-platform-zookeeper
+      - champsly-zookeeper
     ports:
       - "9092:9092"
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: truco-platform-zookeeper:2181
+      KAFKA_ZOOKEEPER_CONNECT: champsly-zookeeper:2181
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://truco-platform-kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://champsly-kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 

@@ -1,4 +1,4 @@
-# Architecture Evolution Plan — Truco Platform
+# Architecture Evolution Plan — Champsly
 
 > Purpose: learning-grade platform. Every step here is chosen to teach a real principle, not to solve a scaling problem that doesn't exist yet. Phases are ordered so the codebase compiles and runs correctly after each one. This plan lives at the monorepo root because it now covers more than the backend alone — frontend hosting (9.8), Lambdas (7.6, 9.7), and Terraform (7.7, 9.2) all live as siblings to `backend/`, not inside it.
 
@@ -53,7 +53,7 @@ Infrastructure      → Repository implementations (Sequelize, src/infra/db/repo
 Platform            → Docker Compose → Kubernetes manifests
 ```
 
-> From Phase 1.11 onward the codebase is TypeScript (Sequelize migrations excepted). From Phase 1.12 onward, every repository is accessed through a colocated `interface` (`*.types.ts` next to each `*.bs.ts`) rather than the concrete Sequelize class — this is what makes the ports in Phase 3.1 an extension of an existing contract instead of a new one.
+> From Phase 1.11 onward the codebase is TypeScript (Sequelize migrations excepted). From Phase 1.12 onward, every repository is accessed through an `interface` defined in `src/shared/repositories/<resource>.types.ts` rather than the concrete Sequelize class — this is what makes the ports in Phase 3.1 an extension of an existing contract instead of a new one.
 
 > **Observability tooling decision:** the stack is OTEL/Jaeger (traces) + Sentry (error tracking) + Prometheus/Grafana (metrics) + Loki/Promtail (logs) — the standard open-source "three pillars" set, plus Sentry for error triage, which none of the other three do well. OpenSearch/Kibana was considered as a Loki alternative for log aggregation and deliberately left out: it solves the same problem as Loki (log search), and running both would be redundant. Loki wins here because it stays inside the same Grafana pane already used for traces and metrics, while Elasticsearch/OpenSearch's full-index architecture is heavier to self-host (JVM, shard management) for no benefit this project needs. Revisit this only if the goal shifts toward demonstrating ELK/OpenSearch specifically for a target job description.
 
@@ -137,7 +137,7 @@ Platform            → Docker Compose → Kubernetes manifests
   - Update `config-sequelize.js` to read host from env so both Docker and localhost work.
   - *Why? Because* "works on my machine" is not a reproducible environment. Docker Compose makes the DB, the Kafka broker, and the API start in a single command for any contributor and mirrors the topology that Kubernetes will manage later — the closer local dev is to production, the fewer environment-specific bugs you'll encounter.
 
-- [ ] **1.11 TypeScript migration**
+- [✅] **1.11 TypeScript migration**
   - Install `typescript`, `tsx` (or `ts-node`), `@types/node`, `@types/express`, `@types/cors`.
   - Add `tsconfig.json` — `target: ES2022`, `module: commonjs`, `moduleResolution: node`, `strict: true`, `esModuleInterop: true`, `rootDir: src`, `outDir: dist`.
   - Rename every source file under `src/` and `app.js` from `.js` to `.ts`, keeping the existing suffix convention (`*.ctrl.ts`, `*.bs.ts`, `*.rep.ts`). Sequelize migrations stay `.js` — the CLI reads them independently of the app build.
@@ -146,8 +146,8 @@ Platform            → Docker Compose → Kubernetes manifests
   - Update `npm run dev` to `tsx watch app.ts`; add `npm run build` (`tsc`) and point `npm start` at `dist/app.js`.
   - *Why? Because* the codebase is 82 files / ~2,300 lines today — this is the smallest it will ever be. Phase 2 introduces Value Objects and status enums whose entire purpose (illegal states unrepresentable) is what TypeScript's type system gives natively; hand-validating those as plain JS classes now and re-expressing them as TS types later would mean doing the same work twice. Converting now means every phase after this one is written in TS from the start.
 
-- [ ] **1.12 Dependency Inversion — repository interfaces**
-  - For each resource with a repository, add a colocated `*.types.ts` file next to its interactor, e.g. `src/interactors/players/player.types.ts` alongside `player.bs.ts`.
+- [✅] **1.12 Dependency Inversion — repository interfaces**
+  - For each resource with a repository, add a `*.types.ts` file under `src/shared/repositories/`, e.g. `src/shared/repositories/player.types.ts` — a neutral location, not nested inside either `adapters/repositories/` or `interactors/<resource>/`.
   - This file exports the interactor's input/output shapes *and* the repository port itself as an `interface`, e.g.:
     ```ts
     export interface PlayerRepository {
@@ -156,10 +156,17 @@ Platform            → Docker Compose → Kubernetes manifests
       // ...
     }
     ```
-  - Interactors (`player.bs.ts`) import only the `PlayerRepository` type — never the concrete Sequelize repository class — and receive an implementation through the Awilix constructor exactly as before.
+  - Interactors (`player.bs.ts`) import only the `PlayerRepository` type from `src/shared/repositories/player.types.ts` — never the concrete Sequelize repository class — and receive an implementation through the Awilix constructor exactly as before.
   - The concrete repository (`player.rep.ts`) declares `export class PlayerRepository implements PlayerRepository` (renaming the export where it would collide, e.g. `SequelizePlayerRepository`), so the compiler fails the build the moment the repo's shape drifts from the port.
   - Repeat for `Tournament`, `Phase`, `Group`, `Match`, `Player`. Awilix registration tokens in `register.js` don't change — only what interactors import changes.
-  - *Why? Because* this is the Dependency Inversion Principle enforced by the compiler instead of by convention: interactors depend on an abstraction they own (`*.types.ts`), not on the concrete Sequelize class living in the adapters layer. JSDoc `@interface` documents intent but never fails a build when a repo's shape drifts — a real TS `interface` does. Doing this immediately after the TS migration means every interactor is unit-testable with a hand-written fake from this point forward, instead of waiting for Phase 3's CQRS split to justify introducing ports.
+  - *Why? Because* this is the Dependency Inversion Principle enforced by the compiler instead of by convention: interactors depend on an abstraction, not on the concrete Sequelize class living in the adapters layer. JSDoc `@interface` documents intent but never fails a build when a repo's shape drifts — a real TS `interface` does. The port lives in `src/shared/repositories/` rather than colocated inside the owning resource's interactor folder because a repository's output shapes aren't always resource-private — `GroupRepository.getTournamentGroups()`'s `GroupWithStats`/`PlayerWithStats` types, discovered during 1.11 cleanup, are consumed by `phases` interactors, not just `groups` ones. Nesting the port inside one resource's interactor folder would force a sibling resource to reach across interactor folders to use it — exactly the interactor-to-interactor coupling Phase 2 bans — so it goes in `shared/` instead, alongside `shared/errors/` and the value-objects/events folders Phase 2 adds. Doing this immediately after the TS migration means every interactor is unit-testable with a hand-written fake from this point forward, instead of waiting for Phase 3's CQRS split to justify introducing ports.
+
+- [✅] **1.13 Rebrand — Truco Platform → Champsly**
+  - Rename every occurrence of "truco"/"Truco Platform" across the monorepo to "Champsly": `backend/package.json`'s `name` (→ `champsly-backend`, then regenerate `package-lock.json`), `backend/CLAUDE.md`, `frontend/CLAUDE.md`, this plan's own title, `backend/docs/collection_postman.json`, and `frontend/vite.config.ts`'s dev-server proxy target.
+  - Rename the Docker Compose services (`truco-platform-frontend/-backend/-db/-zookeeper/-kafka` → `champsly-frontend/-backend/-db/-zookeeper/-kafka`) and every hostname reference that depends on them (`DATABASE_URL`, `KAFKA_ZOOKEEPER_CONNECT`, `KAFKA_ADVERTISED_LISTENERS`, the frontend Vite proxy target, `backend/.env`'s `DB_HOST`).
+  - Rename the Postgres database itself via `ALTER DATABASE truco RENAME TO champsly;` against the running container — not by recreating the volume — so local dev data survives; update `POSTGRES_DB` in `docker-compose.yml` and `DB_DATABASE` in `backend/.env`/`.env.example` to match. Named volumes (`postgres_data`, `backend_node_modules`, `frontend_node_modules`) are untouched, so `docker compose down` (no `-v`) + `up` reuses them under the renamed services.
+  - Generalize the one line in `backend/CLAUDE.md` that described the API as managing "Truco card game tournaments" specifically.
+  - *Why? Because* the domain model never actually encoded anything Truco-specific — no card ranks, no suits, no Truco scoring rules, just `Tournament`/`Phase`/`Group`/`Match`/`Player` and a generic round-robin scheduler. The name was a leftover from the platform's original single-game framing; "Champsly" doesn't imply a specific game, which matches what the platform actually does.
 
 ---
 
@@ -214,7 +221,7 @@ No `src/domain/` folder. No bounded contexts. No aggregate roots or repository p
 **Steps:**
 
 - [ ] **3.1 Split repository interfaces for read/write (builds on 1.12)**
-  - The repository ports already exist as of Phase 1.12 (`*.types.ts` colocated per resource) — this step is no longer about creating interfaces from scratch.
+  - The repository ports already exist as of Phase 1.12 (`*.types.ts` per resource under `src/shared/repositories/`) — this step is no longer about creating interfaces from scratch.
   - Where a query handler's read shape genuinely diverges from the write repository (e.g., a read method needs a joined DTO instead of a raw entity), extend the resource's `*.types.ts` with a second, narrower interface (e.g., `PlayerReadRepository`) rather than widening the original port.
   - Move Sequelize implementations from `src/adapters/repositories/` to `src/infra/db/repositories/`, keeping each `implements` clause intact.
   - Register in Awilix under the same tokens — no changes needed in handlers.
@@ -558,7 +565,7 @@ Phase 4 + Phase 5
 ## 5. Conventions to Establish Early (Phase 1)
 
 - **File naming** — keep `*.ctrl.ts`, `*.bs.ts` (rename to `*.handler.ts` in Phase 3), `*.rep.ts` (extensions become `.ts` in Phase 1.11). Suffix signals layer.
-- **Repository ports** — every resource with a repository gets a colocated `*.types.ts` (Phase 1.12) exporting its interface; interactors/handlers import the interface, never the concrete repository class.
+- **Repository ports** — every resource with a repository gets a `*.types.ts` under `src/shared/repositories/` (Phase 1.12) exporting its interface; interactors/handlers import the interface, never the concrete repository class.
 - **No interactor-to-interactor calls** — enforced from Phase 2 onward; use domain services or events instead.
 - **Repositories return domain entities, not ORM instances** — add `.toDomain()` mapper methods in Phase 2.
 - **Every domain event carries `aggregateId` and `occurredOn`** — established once in Phase 2, never revisited.

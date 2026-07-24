@@ -15,7 +15,7 @@ npm run preview   # Serve the dist/ build locally
 
 No test framework is installed. Type-checking only runs as part of `build`.
 
-The dev server proxies `/api/*` → `http://truco-platform-backend:4001/*` **unchanged** (no path rewrite) — the backend itself mounts routes under `/api/v1`. Service files default their axios `baseURL` to `/api/v1`; override with the `VITE_API_URL` env var (include the `/v1` suffix if set).
+The dev server proxies `/api/*` → `http://champsly-backend:4001/*` **unchanged** (no path rewrite) — the backend itself mounts routes under `/api/v1`. Service files default their axios `baseURL` to `/api/v1`; override with the `VITE_API_URL` env var (include the `/v1` suffix if set).
 
 ---
 
