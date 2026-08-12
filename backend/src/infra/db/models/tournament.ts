@@ -1,13 +1,14 @@
 import { Model, DataTypes, Sequelize, InferAttributes, InferCreationAttributes, CreationOptional, NonAttribute, BelongsToManyAddAssociationsMixin } from 'sequelize';
 import type { Db } from './models.types';
 import type { Player } from './player';
+import { TournamentStatus } from '../../../shared/value-objects';
 
 export class Tournament extends Model<InferAttributes<Tournament>, InferCreationAttributes<Tournament>> {
     declare id: CreationOptional<number>;
     declare name: string;
     declare groups_quantity: number;
     declare phases_quantity: number;
-    declare status: string;
+    declare status: TournamentStatus;
     declare created_at: CreationOptional<Date>;
     declare updated_at: CreationOptional<Date>;
     declare Players?: NonAttribute<Player[]>;
@@ -20,6 +21,14 @@ export class Tournament extends Model<InferAttributes<Tournament>, InferCreation
             foreignKey: 'tournament_id',
             otherKey: 'player_id'
         });
+    }
+
+    canStart(): boolean {
+        return this.status === TournamentStatus.Draft;
+    }
+
+    canFinish(): boolean {
+        return this.status === TournamentStatus.Active;
     }
 }
 

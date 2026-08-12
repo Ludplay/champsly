@@ -1,8 +1,12 @@
 import { CreationAttributes } from 'sequelize';
 import type { TournamentRepository } from '../../shared/repositories/tournament.types';
-import CreateGroupInteractor from '../groups/create-group.bs';
-import CreatePhaseInteractor from '../phases/create-phase.bs';
+import type { GroupRepository } from '../../shared/repositories/group.types';
+import type { PhaseRepository } from '../../shared/repositories/phase.types';
+import type { EventBus } from '../../shared/events/event-bus.types';
 import { Tournament } from '../../infra/db/models/tournament';
+import { isTournamentStatus } from '../../shared/value-objects';
+import { ValidationError } from '../../shared/errors';
+import { TournamentCreated } from '../../shared/events';
 
 interface TournamentPlayerInput {
     player_id: number;
@@ -18,21 +22,28 @@ interface CreateTournamentInput {
 
 class CreateTournamentInteractor {
     private tournamentRepository: TournamentRepository;
-    private createGroupInteractor: CreateGroupInteractor;
-    private createPhaseInteractor: CreatePhaseInteractor;
+    private groupRepository: GroupRepository;
+    private phaseRepository: PhaseRepository;
+    private eventBus: EventBus;
 
     constructor(params: {
         tournamentRepository: TournamentRepository;
-        createGroupInteractor: CreateGroupInteractor;
-        createPhaseInteractor: CreatePhaseInteractor;
+        groupRepository: GroupRepository;
+        phaseRepository: PhaseRepository;
+        eventBus: EventBus;
     }) {
         this.tournamentRepository = params.tournamentRepository;
-        this.createGroupInteractor = params.createGroupInteractor;
-        this.createPhaseInteractor = params.createPhaseInteractor;
+        this.groupRepository = params.groupRepository;
+        this.phaseRepository = params.phaseRepository;
+        this.eventBus = params.eventBus;
     }
 
     async execute(input: CreateTournamentInput) {
         const { name, groups_quantity, phases_quantity, status, players } = input;
+
+        if (!isTournamentStatus(status)) {
+            throw new ValidationError(`Invalid tournament status: ${status}`);
+        }
 
         const inputRecord: CreationAttributes<Tournament> = {
             name,
@@ -50,18 +61,18 @@ class CreateTournamentInteractor {
         const groupsIds = await this.createTournamentGroups(tournament.id, groups_quantity);
 
         // Creates phases
-        const phasesIds = await this.createTournamentPhases(tournament.id, phases_quantity);
+        await this.createTournamentPhases(tournament.id, phases_quantity);
 
         // Add players in groups
-        await this.addPlayersInGroups(groupsIds, playersIds);
+        await this.assignPlayersToGroups(groupsIds, playersIds);
 
-        // Create matches for phase 1 (groups phase)
-        //await this.createMatchesPhaseGroups(phasesIds[0]);
+        // Only announce the tournament exists once every write it depends on has succeeded
+        await this.eventBus.publish(new TournamentCreated(tournament.id, tournament.name));
 
         return tournament;
     }
 
-    async storeTournamentPlayers(tournament: Tournament, players: TournamentPlayerInput[]) {
+    private async storeTournamentPlayers(tournament: Tournament, players: TournamentPlayerInput[]) {
         const playersIds: number[] = [];
         players.forEach(player => {
             playersIds.push(player.player_id);
@@ -72,7 +83,7 @@ class CreateTournamentInteractor {
         return playersIds;
     }
 
-    async createTournamentGroups(tournamentId: number, groupsQuantity: number) {
+    private async createTournamentGroups(tournamentId: number, groupsQuantity: number) {
 
         const groupsIds: number[] = [];
 
@@ -83,7 +94,7 @@ class CreateTournamentInteractor {
                 number: i
             }
 
-            const group = await this.createGroupInteractor.execute(groupInput);
+            const group = await this.groupRepository.create(groupInput);
             groupsIds.push(group.id);
 
         }
@@ -91,7 +102,7 @@ class CreateTournamentInteractor {
         return groupsIds;
     }
 
-    async createTournamentPhases(tournamentId: number, phasesQuantity: number) {
+    private async createTournamentPhases(tournamentId: number, phasesQuantity: number) {
 
         const phasesIds: number[] = [];
 
@@ -103,19 +114,31 @@ class CreateTournamentInteractor {
                 status: 'waiting'
             }
 
-            const phase = await this.createPhaseInteractor.execute(phaseInput);
+            const phase = await this.phaseRepository.create(phaseInput);
             phasesIds.push(phase.id);
         }
 
         return phasesIds;
     }
 
-    async addPlayersInGroups(groupsIds: number[], playersIds: number[]) {
-        await this.createGroupInteractor.addPlayersInGroups(groupsIds, playersIds);
-    }
+    private async assignPlayersToGroups(groupsIds: number[], playersIds: number[]) {
 
-    async createMatchesPhaseGroups(phaseId: number) {
-        await this.createPhaseInteractor.createMatchesPhaseGroups(phaseId);
+        //sort randomly
+        const sortedPlayersIds = [...playersIds].sort(() => Math.random() - 0.5);
+
+        let indexGroup = 0;
+        for (let i=0; i < sortedPlayersIds.length; i++) {
+            const groupId = groupsIds[indexGroup];
+            const playerId = sortedPlayersIds[i];
+
+            await this.groupRepository.addPlayerInGroup(playerId, groupId);
+
+            indexGroup++;
+
+            if (indexGroup === groupsIds.length) {
+                indexGroup = 0;
+            }
+        }
     }
 
 }

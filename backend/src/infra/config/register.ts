@@ -11,12 +11,14 @@ import SequelizeTournamentRepository from '../../adapters/repositories/tournamen
 import SequelizePhaseRepository from '../../adapters/repositories/phases.rep';
 import SequelizeGroupRepository from '../../adapters/repositories/groups.rep';
 import SequelizeMatchRepository from '../../adapters/repositories/matchs.rep';
+import InMemoryEventBus from '../events/in-memory-event-bus';
 
 import type { PlayerRepository } from '../../shared/repositories/player.types';
 import type { TournamentRepository } from '../../shared/repositories/tournament.types';
 import type { PhaseRepository } from '../../shared/repositories/phase.types';
 import type { GroupRepository } from '../../shared/repositories/group.types';
 import type { MatchRepository } from '../../shared/repositories/match.types';
+import type { EventBus } from '../../shared/events/event-bus.types';
 
 import GetPlayersInteractor from '../../interactors/players/get-players.bs';
 import CreatePlayerInteractor from '../../interactors/players/create-player.bs';
@@ -90,6 +92,7 @@ export interface Cradle {
 
     models: Db;
     logger: typeof logger;
+    eventBus: EventBus;
 }
 
 // Container creation
@@ -135,7 +138,12 @@ container.register({
     deleteMatchInteractor: asClass(DeleteMatchInteractor).scoped(),
 
     models: asValue(models),
-    logger: asValue(logger)
+    logger: asValue(logger),
+
+    // In-memory now; swapped for KafkaEventBus behind the same EventBus interface in Phase 5.
+    // Singleton so a subscription registered once at startup keeps receiving events
+    // published from any request — a per-request (.scoped()) instance would lose them.
+    eventBus: asClass(InMemoryEventBus).singleton()
 });
 
 export default container;

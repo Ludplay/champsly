@@ -10,4 +10,5 @@ export interface MatchRepository {
     delete(id: number): Promise<number>;
     phaseMatchesExist(phaseId: number): Promise<Match | null>;
     createMany(data: CreationAttributes<Match>[]): Promise<Match[]>;
+    getMatchesByGroupIds(groupIds: number[]): Promise<Match[]>;
 }

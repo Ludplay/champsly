@@ -2,9 +2,11 @@ import type { PhaseRepository } from '../../shared/repositories/phase.types';
 import type { MatchRepository } from '../../shared/repositories/match.types';
 import CreateMatchInteractor from '../matchs/create-match.bs';
 import logger from '../../infra/config/logger';
-import { CreationAttributes } from 'sequelize';
+import { CreationAttributes, InferAttributes } from 'sequelize';
 import { Match } from '../../infra/db/models/match';
-import type { GroupRepository, PlayerWithStats } from '../../shared/repositories/group.types';
+import type { Player } from '../../infra/db/models/player';
+import { MatchStatus } from '../../shared/value-objects';
+import type { GroupRepository } from '../../shared/repositories/group.types';
 
 interface RoundRobinPlayer {
     id: number | null;
@@ -94,7 +96,7 @@ class GenerateGroupsPhaseMatchesInteractor {
 
     }
 
-    async implementRoundRobinGroup(groupId: number, groupPlayers: PlayerWithStats[], phaseId: number) {
+    async implementRoundRobinGroup(groupId: number, groupPlayers: InferAttributes<Player>[], phaseId: number) {
         if (!Array.isArray(groupPlayers) || groupPlayers.length < 2) {
             return [];
         }
@@ -133,7 +135,7 @@ class GenerateGroupsPhaseMatchesInteractor {
                         phase_id: phaseId,
                         group_id: groupId,
                         round_number: round,
-                        status: 'waiting'
+                        status: MatchStatus.Waiting
                     }
                     matches.push(matchInput);
                     this.logger.debug({ player1: players[left].name, player2: players[right].name }, 'Match created');

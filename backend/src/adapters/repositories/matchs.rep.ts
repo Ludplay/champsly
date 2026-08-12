@@ -83,6 +83,14 @@ class SequelizeMatchRepository implements MatchRepository {
     async createMany(data: CreationAttributes<Match>[]) {
         return await this.matchModel.bulkCreate(data);
     }
+
+    async getMatchesByGroupIds(groupIds: number[]) {
+        return await this.matchModel.findAll({
+            where: {
+                group_id: groupIds
+            }
+        });
+    }
 }
 
 export = SequelizeMatchRepository;

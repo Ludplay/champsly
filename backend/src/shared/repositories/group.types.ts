@@ -7,6 +7,10 @@ export interface PlayerStats {
     points: number;
 }
 
+export type GroupWithPlayers = InferAttributes<Group> & {
+    Players: InferAttributes<Player>[];
+};
+
 export type PlayerWithStats = InferAttributes<Player> & PlayerStats;
 
 export type GroupWithStats = InferAttributes<Group> & {
@@ -15,7 +19,7 @@ export type GroupWithStats = InferAttributes<Group> & {
 
 export interface GroupRepository {
     getAll(): Promise<Group[]>;
-    getTournamentGroups(tournamentId: number): Promise<GroupWithStats[]>;
+    getTournamentGroups(tournamentId: number): Promise<GroupWithPlayers[]>;
     getOne(id: number): Promise<Group | null>;
     create(data: CreationAttributes<Group>): Promise<Group>;
     update(id: number, data: Partial<CreationAttributes<Group>>): Promise<Group>;

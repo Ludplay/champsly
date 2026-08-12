@@ -1,10 +1,14 @@
 import type { GroupRepository } from '../../shared/repositories/group.types';
+import type { MatchRepository } from '../../shared/repositories/match.types';
+import { computeGroupStandings } from '../../shared/services/group-standings.service';
 
 class GetGroupsInteractor {
     private groupRepository: GroupRepository;
+    private matchRepository: MatchRepository;
 
-    constructor(params: { groupRepository: GroupRepository }) {
+    constructor(params: { groupRepository: GroupRepository; matchRepository: MatchRepository }) {
         this.groupRepository = params.groupRepository;
+        this.matchRepository = params.matchRepository;
     }
 
     async execute() {
@@ -12,7 +16,16 @@ class GetGroupsInteractor {
     }
 
     async executeByTournament(tournamentId: number) {
-        return await this.groupRepository.getTournamentGroups(tournamentId);
+        const groups = await this.groupRepository.getTournamentGroups(tournamentId);
+        const groupIds = groups.map((group) => group.id);
+
+        if (!groupIds.length) {
+            return [];
+        }
+
+        const matches = await this.matchRepository.getMatchesByGroupIds(groupIds);
+
+        return computeGroupStandings(groups, matches);
     }
 
 }

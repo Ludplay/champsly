@@ -2,6 +2,7 @@ import { Model, DataTypes, Sequelize, InferAttributes, InferCreationAttributes, 
 import type { Db } from './models.types';
 import type { Phase } from './phase';
 import type { Player } from './player';
+import { MatchStatus, Score } from '../../../shared/value-objects';
 
 export class Match extends Model<InferAttributes<Match>, InferCreationAttributes<Match>> {
     declare id: CreationOptional<number>;
@@ -10,7 +11,7 @@ export class Match extends Model<InferAttributes<Match>, InferCreationAttributes
     declare round_number: number;
     declare player1_id: number;
     declare player2_id: number;
-    declare status: string;
+    declare status: MatchStatus;
     declare winner_player_id: CreationOptional<number | null>;
     declare player1_score: CreationOptional<number>;
     declare player2_score: CreationOptional<number>;
@@ -35,6 +36,15 @@ export class Match extends Model<InferAttributes<Match>, InferCreationAttributes
             foreignKey: 'player2_id',
             as: 'Player2'
         });
+    }
+
+    recordResult(score: Score): void {
+        this.player1_score = score.player1;
+        this.player2_score = score.player2;
+
+        const winner = score.winner();
+        this.winner_player_id = winner === 'player1' ? this.player1_id : winner === 'player2' ? this.player2_id : null;
+        this.status = MatchStatus.Finished;
     }
 }
 

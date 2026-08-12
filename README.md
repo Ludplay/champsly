@@ -64,6 +64,12 @@ A three-layer clean architecture wired together with constructor injection (Awil
 
 See `backend/CLAUDE.md` for the full layer/naming conventions and `frontend/CLAUDE.md` for the frontend's feature-slice structure.
 
+### System design
+
+![Champsly architecture diagram — Phase 1 complete](system_design/v1.png)
+
+A snapshot as of Phase 1 completion: solid boxes are implemented and wired; dashed ones (repository port interfaces, Kafka/Zookeeper) exist but aren't consumed yet. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each piece lands as later phases land.
+
 ## Project status
 
 Phase 1 (Foundation Hardening) of the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) is complete: environment config, global error handling, request validation, structured logging, API versioning, rate limiting, Docker Compose, a full TypeScript migration, and repository interfaces enforcing dependency inversion.

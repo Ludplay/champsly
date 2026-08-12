@@ -19,6 +19,10 @@ export class Group extends Model<InferAttributes<Group>, InferCreationAttributes
             otherKey: 'player_id'
         });
     }
+
+    canAddPlayer(playerId: number, currentPlayerIds: number[]): boolean {
+        return !currentPlayerIds.includes(playerId);
+    }
 }
 
 export default function initGroupModel(sequelize: Sequelize): typeof Group {
