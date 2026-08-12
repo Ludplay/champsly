@@ -72,9 +72,12 @@ A snapshot as of Phase 1 completion: solid boxes are implemented and wired; dash
 
 ## Project status
 
-Phase 1 (Foundation Hardening) of the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) is complete: environment config, global error handling, request validation, structured logging, API versioning, rate limiting, Docker Compose, a full TypeScript migration, and repository interfaces enforcing dependency inversion.
+Phases 1 and 2 of the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) are complete:
 
-Phases 2 onward (DDD-lite value objects, CQRS, Kafka event-driven architecture, observability, AWS deployment, Kubernetes) are planned but not yet started — see the plan for the full roadmap and the reasoning behind each step.
+- **Phase 1 — Foundation Hardening:** environment config, global error handling, request validation, structured logging, API versioning, rate limiting, Docker Compose, a full TypeScript migration, and repository interfaces enforcing dependency inversion.
+- **Phase 2 — Entities & Value Objects (DDD-lite):** type-safe value objects (`TournamentStatus`, `MatchStatus`, `Score`, `PhaseType`), entity behavior moved onto the models (`Tournament.canStart/canFinish`, `Match.recordResult`, `Group.canAddPlayer`), standings computation extracted out of the repository into a pure service, `CreateTournamentInteractor` decoupled from other interactors, and an in-memory domain event bus (`TournamentCreated`, `MatchResultRecorded`, `PhaseCompleted`).
+
+Phase 3 (Authentication & Login) onward — CQRS, Kafka event-driven architecture, observability, testing, AWS deployment, Kubernetes — is planned but not yet started; see the plan for the full roadmap and the reasoning behind each step.
 
 ## License
 
