@@ -66,9 +66,9 @@ See `backend/CLAUDE.md` for the full layer/naming conventions and `frontend/CLAU
 
 ### System design
 
-![Champsly architecture diagram — Phase 1 complete](system_design/v1.png)
+![Champsly architecture diagram — Phase 2 complete](system_design/v2.png)
 
-A snapshot as of Phase 1 completion: solid boxes are implemented and wired; dashed ones (repository port interfaces, Kafka/Zookeeper) exist but aren't consumed yet. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each piece lands as later phases land.
+A snapshot as of Phase 2 completion: solid boxes are implemented and wired, including the new shared/domain layer (value objects, `GroupStandingsService`, the domain event bus) added in Phase 2's DDD-lite pass. Dashed ones (repository port interfaces, Kafka/Zookeeper) exist but aren't consumed yet — that lands in Phase 5. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each remaining piece lands as later phases land, or the [Phase 1 diagram](system_design/v1.png) for the earlier snapshot.
 
 ## Project status
 
