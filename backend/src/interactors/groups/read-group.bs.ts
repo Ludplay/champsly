@@ -1,14 +1,14 @@
-import type { GroupRepository } from '../../shared/repositories/group.types';
+import type TournamentOwnershipService from '../../shared/services/tournament-ownership.service';
 
 class ReadGroupInteractor {
-    private groupRepository: GroupRepository;
+    private tournamentOwnershipService: TournamentOwnershipService;
 
-    constructor(params: { groupRepository: GroupRepository }) {
-        this.groupRepository = params.groupRepository;
+    constructor(params: { tournamentOwnershipService: TournamentOwnershipService }) {
+        this.tournamentOwnershipService = params.tournamentOwnershipService;
     }
 
-    async execute(id: number) {
-        return await this.groupRepository.getOne(id);
+    async execute(id: number, userId: number) {
+        return await this.tournamentOwnershipService.getGroupOwner(id, userId);
     }
 
 }

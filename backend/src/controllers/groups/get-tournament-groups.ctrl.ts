@@ -3,7 +3,7 @@ const GetTournamentGroupsController = async (req: Request, res: Response, next: 
     const getGroupsInteractor = req.container.resolve('getGroupsInteractor');
     const { tournamentId } = req.params;
 
-    const response = await getGroupsInteractor.executeByTournament(Number(tournamentId));
+    const response = await getGroupsInteractor.executeByTournament(Number(tournamentId), req.user!.id);
 
     return res.status(200).json(response);
 };

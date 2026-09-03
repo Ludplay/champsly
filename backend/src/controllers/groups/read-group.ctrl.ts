@@ -3,7 +3,7 @@ const ReadGroupController = async (req: Request, res: Response, next: NextFuncti
     const readGroupInteractor = req.container.resolve('readGroupInteractor');
     const { id } = req.params;
 
-    const response = await readGroupInteractor.execute(Number(id));
+    const response = await readGroupInteractor.execute(Number(id), req.user!.id);
 
     return res.status(200).json(response);
 

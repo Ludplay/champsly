@@ -1,14 +1,14 @@
-import type { MatchRepository } from '../../shared/repositories/match.types';
+import type TournamentOwnershipService from '../../shared/services/tournament-ownership.service';
 
 class ReadMatchInteractor {
-    private matchRepository: MatchRepository;
+    private tournamentOwnershipService: TournamentOwnershipService;
 
-    constructor(params: { matchRepository: MatchRepository }) {
-        this.matchRepository = params.matchRepository;
+    constructor(params: { tournamentOwnershipService: TournamentOwnershipService }) {
+        this.tournamentOwnershipService = params.tournamentOwnershipService;
     }
 
-    async execute(id: number) {
-        return await this.matchRepository.getOne(id);
+    async execute(id: number, userId: number) {
+        return await this.tournamentOwnershipService.getMatchOwner(id, userId);
     }
 
 }

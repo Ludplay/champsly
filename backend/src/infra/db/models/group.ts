@@ -1,6 +1,7 @@
 import { Model, DataTypes, Sequelize, InferAttributes, InferCreationAttributes, CreationOptional, NonAttribute } from 'sequelize';
 import type { Db } from './models.types';
 import type { Player } from './player';
+import type { Tournament } from './tournament';
 
 export class Group extends Model<InferAttributes<Group>, InferCreationAttributes<Group>> {
     declare id: CreationOptional<number>;
@@ -10,6 +11,7 @@ export class Group extends Model<InferAttributes<Group>, InferCreationAttributes
     declare created_at: CreationOptional<Date>;
     declare updated_at: CreationOptional<Date>;
     declare Players?: NonAttribute<Player[]>;
+    declare Tournament?: NonAttribute<Tournament>;
 
     static associate(models: Db) {
         Group.belongsToMany(models.Player, {
@@ -17,6 +19,11 @@ export class Group extends Model<InferAttributes<Group>, InferCreationAttributes
             as: 'Players',
             foreignKey: 'group_id',
             otherKey: 'player_id'
+        });
+
+        Group.belongsTo(models.Tournament, {
+            foreignKey: 'tournament_id',
+            as: 'Tournament'
         });
     }
 

@@ -23,3 +23,13 @@ export const writeLimiter = rateLimit({
     handler,
     skip: (req: Request) => !WRITE_METHODS.includes(req.method)
 });
+
+// Tighter than the global limiter — blunts credential stuffing (login) and
+// verification-token brute-forcing (verify-email), scoped to /auth/* only.
+export const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler
+});

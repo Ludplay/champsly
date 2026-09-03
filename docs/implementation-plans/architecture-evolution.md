@@ -224,79 +224,79 @@ The mechanism is a **bearer JWT access token + rotating refresh token**, not ser
 
 **Steps:**
 
-- [ ] **3.1 Database migration — `users` and `refresh_tokens` tables**
+- [✅] **3.1 Database migration — `users` and `refresh_tokens` tables**
   - `users`: `id`, `email` (unique), `password_hash`, `status` (`pending_verification` | `verified`), `created_at`, `updated_at`.
   - `refresh_tokens`: `id`, `user_id`, `token_hash` (never the raw token), `expires_at`, `revoked_at` (nullable), `replaced_by_id` (nullable, for rotation chains), `created_at`.
   - Add a nullable `user_id` column to `tournaments` to establish ownership.
   - *Why? Because* everything else in this phase — hashing, rotation, revocation, ownership — needs these columns to exist first, and a nullable `user_id` on `tournaments` lets existing rows (created before auth existed) get backfilled or explicitly claimed without a destructive migration.
 
-- [ ] **3.2 User entity & value objects**
+- [✅] **3.2 User entity & value objects**
   - `src/shared/value-objects/`: `Email` (validates format, normalizes casing), `AccountStatus` (`pending_verification | verified`).
   - `src/infra/db/models/user.ts` following the existing model conventions (`InferAttributes`/`InferCreationAttributes`).
   - *Why? Because* this is the same DDD-lite pattern Phase 2 established — illegal states (`status: 'confrimed'`) unrepresentable, `Email` validated once at construction instead of scattered regex checks. The password itself is never modeled as a value object holding plaintext; only the hash is ever stored or passed around (see 3.3).
 
-- [ ] **3.3 Password hashing & token infrastructure**
+- [✅] **3.3 Password hashing & token infrastructure**
   - Install `bcrypt` (or `argon2`) and `jsonwebtoken`.
   - `src/infra/auth/password-hasher.ts` — wraps hash/compare, cost factor configurable via env.
   - `src/infra/auth/token-service.ts` — signs/verifies short-lived access tokens (e.g. 15 min; claims limited to `sub`, `exp`, `iat`, `jti` — no email or other PII, since a JWT payload is signed, not encrypted) and generates opaque refresh tokens (random bytes, persisted only as a hash per 3.1).
   - Signing secret loaded from env (`.env`, per 1.3), never hardcoded.
   - *Why? Because* keeping the access token short-lived limits how long a leaked token is useful, and storing only the refresh token's hash means a leaked database dump doesn't hand out usable tokens — the same reasoning that already keeps passwords out of the database in plaintext.
 
-- [ ] **3.4 Register endpoint**
+- [✅] **3.4 Register endpoint**
   - `POST /api/v1/auth/register` — validates `{ email, password }` via a Zod schema (1.5 pattern), hashes the password, creates the `User` with `status: pending_verification`.
   - Issues an access token and a refresh token immediately — the user is logged in from the first response; verification is a follow-up step, not a login gate.
   - Access token returned in the response body; refresh token set as an `httpOnly`, `Secure`, `SameSite=Strict` cookie.
   - Publishes a `UserRegistered` domain event (2.5's event bus) carrying the user id and a freshly generated, single-use, time-limited verification token.
   - *Why? Because* splitting "create the account" from "prove the email" was the explicit product requirement — a user shouldn't be stuck on a screen waiting for a mail that may never arrive (e.g. a mistyped address) before they can use the app at all.
 
-- [ ] **3.5 Email verification**
+- [✅] **3.5 Email verification**
   - A subscriber (`src/infra/events/subscribers/send-verification-email-on-user-registered.ts`) listens for `UserRegistered` and calls an `EmailSender` port with the verification link/code.
   - `src/shared/mail/email-sender.types.ts` defines the `EmailSender` port; `src/infra/mail/ConsoleEmailSender.ts` is the only implementation for now — it logs the link via Pino instead of sending real mail.
   - `POST /api/v1/auth/verify-email` — consumes the token, flips the matching user's `status` to `verified`. Tokens are single-use and expire (e.g. 24h); an expired/used token returns a clear, re-requestable error.
   - *Why? Because* this is the same swap-the-infrastructure-not-the-domain-logic pattern already used for the event bus (in-memory now, Kafka in Phase 5) and for LocalStack vs. real AWS (Phase 8 vs. Phase 10): building against a port means the eventual move to a real mail provider (SES, in Phase 10) touches one new adapter file, not the registration flow itself.
 
-- [ ] **3.6 Login endpoint**
+- [✅] **3.6 Login endpoint**
   - `POST /api/v1/auth/login` — validates credentials against the stored hash, issues a new access + refresh token pair exactly like registration.
   - Returns the same generic error for "no such user" and "wrong password" — never reveal which one it was.
   - *Why? Because* login and registration both end at "an authenticated session," so they share the token-issuing logic from 3.3 rather than duplicating it; distinguishing "wrong email" from "wrong password" in an error message is a well-known account-enumeration leak.
 
-- [ ] **3.7 Refresh token rotation & revocation**
+- [✅] **3.7 Refresh token rotation & revocation**
   - `POST /api/v1/auth/refresh` — reads the refresh cookie, validates the matching `refresh_tokens` row (not revoked, not expired), issues a new access token *and* a new refresh token, marks the old row `revoked_at` + `replaced_by_id`, and sets the new cookie.
   - If a refresh token that's already marked revoked is presented, treat it as theft: revoke the entire chain descended from it and force re-login.
   - `POST /api/v1/auth/logout` — revokes the current refresh token row; the cookie is cleared client-side.
   - *Why? Because* this is the concrete answer to "JWTs can't be revoked": the access token stays stateless and just expires quickly, but the refresh token is tracked server-side, so logout and theft-detection are both real. Reuse of an already-rotated refresh token is the standard signal that a token was stolen and replayed — reacting to it (killing the whole chain) is what makes rotation worth doing instead of just issuing a longer-lived token.
 
-- [ ] **3.8 Auth middleware**
+- [✅] **3.8 Auth middleware**
   - `src/infra/http/middlewares/authenticate.middleware.ts` — reads the `Authorization: Bearer <token>` header, verifies it via `token-service.ts`, attaches `req.user` (id only) or calls `next(new UnauthorizedError(...))`.
   - New `UnauthorizedError`/`ForbiddenError` classes alongside the existing `AppError` subclasses (1.4), wired into the same global error handler.
   - Apply to every route except `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/verify-email`, and `/health`.
   - *Why? Because* this is the one place "is this request authenticated" gets decided — every protected controller trusts `req.user` instead of re-implementing token verification, the same reasoning that put validation and error handling behind shared middleware in 1.4/1.5.
 
-- [ ] **3.9 Ownership — scope tournaments to their owner**
+- [✅] **3.9 Ownership — scope tournaments to their owner**
   - `CreateTournamentInteractor` sets `user_id` from `req.user` (threaded through from the controller) on creation.
   - `GetTournamentsInteractor`/`ReadTournamentInteractor`/`UpdateTournamentInteractor`/`DeleteTournamentInteractor` filter or authorization-check by `user_id`; a mismatch throws `ForbiddenError`.
   - Groups/Phases/Matches are authorized transitively through their parent tournament's `user_id` rather than getting their own owner column.
   - *Why? Because* this is the actual point of doing auth before Phase 4's CQRS split — every command/query handler written from here on is authored with the ownership check already in mind, instead of Phase 4 shipping handlers that then need a second pass to add authorization.
 
-- [ ] **3.10 Harden the auth surface**
+- [✅] **3.10 Harden the auth surface**
   - Add a stricter `express-rate-limit` (1.9) limiter scoped to `/auth/*` — tighter than the global limit, to blunt credential stuffing and verification-token brute-forcing.
   - Install `helmet`; enable a Content-Security-Policy that blocks inline scripts/`eval`.
   - Zod schemas for every new endpoint's body (1.5 pattern): `email`, `password` (minimum length/complexity), `token`.
   - *Why? Because* token hygiene (3.3, 3.7) only protects the token once a request is legitimate — Helmet/CSP and rate limiting are what reduce the odds of XSS executing or a login endpoint being brute-forced in the first place, which matters at least as much as how the token is stored.
 
-- [ ] **3.11 Frontend — auth state & API client**
+- [✅] **3.11 Frontend — auth state & API client**
   - `AuthContext`/`AuthProvider` (`frontend/src/features/auth/`) holding the access token and current user in memory only (component state, never `localStorage`/`sessionStorage`) — cleared on tab close/reload by design.
   - Consolidate the existing per-feature `axios.create()` instances (`players-api.ts`, `groups-api.ts`, `phases-api.ts`, `matches-api.ts`, `tournaments-api.ts`) behind one shared client (`frontend/src/lib/api-client.ts`) so the interceptor logic below only has to exist once.
   - That client's interceptor attaches `Authorization: Bearer <token>` to every request; on a `401`, it calls `/auth/refresh` once (the browser sends the `httpOnly` cookie automatically) and retries the original request with the new access token, or redirects to `/login` if the refresh itself fails.
   - *Why? Because* this is where the in-memory-token decision from 3.3/3.7 actually gets implemented on the client — the token never touches persistent client-side storage, so an XSS payload can't read it out after the fact, only during a live execution. Consolidating the axios instances first is what makes "add the interceptor once" true instead of five times.
 
-- [ ] **3.12 Frontend — register, login, and verification screens**
+- [✅] **3.12 Frontend — register, login, and verification screens**
   - `RegisterPage`/`RegisterForm` and `LoginPage`/`LoginForm`, following the existing form component conventions (`TournamentForm`, `PhaseForm`).
   - A "check your email" state shown immediately after registration (the user is already logged in, so this is informational, not a gate).
   - `VerifyEmailPage` — reads the token from the URL, calls `/auth/verify-email`, shows success/expired-link states with a "resend verification email" action.
   - *Why? Because* the backend flow (3.4/3.5) is only real to a user once there's a screen that reflects it — "you're in, but check your email when you get a chance" needs to actually be visible, not just true at the API level.
 
-- [ ] **3.13 Frontend — protected routes and "my tournaments"**
+- [✅] **3.13 Frontend — protected routes and "my tournaments"**
   - A route wrapper that redirects to `/login` when `AuthContext` has no user, applied to every existing tournament/phase/group/match route.
   - Tournament list/create/edit screens now implicitly operate on "my tournaments" (the backend already scopes by `user_id` per 3.9); add a visible logout action to the nav.
   - *Why? Because* 3.9 makes the backend refuse to return another user's tournaments, but the frontend still needs a logged-out state to redirect from and a way to actually end a session, or the "you must be logged in" reality has no visible entry/exit point.
@@ -628,6 +628,40 @@ The mechanism is a **bearer JWT access token + rotating refresh token**, not ser
 
 ---
 
+### Phase 12 — Localization (i18n / l10n)
+*Goal: everything a user reads — the frontend UI and transactional emails — is available in English and Portuguese. Internal-facing text (API error messages, validation responses, logs) is explicitly out of scope: nobody but the developer reads those, so translating them wouldn't serve a real user.*
+
+This phase is placed last by explicit product decision, not because it is architecturally blocked on Phases 4–11 — CQRS, Kafka, observability, testing, and the AWS/k8s work are all backend/infra concerns that produce no user-facing copy, so none of them gate localization. The one real dependency is Phase 3: it's the first point where there's substantial UI copy (login/register/verify-email screens, 3.11–3.13) and a transactional email template (3.5's verification email) to actually translate, so this phase treats those as its first concrete localization targets rather than starting from a blank slate.
+
+**Steps:**
+
+- [ ] **12.1 User locale preference**
+  - Add a nullable `locale` column to `users` (3.1's table), constrained to `en | pt`, defaulting to `en`.
+  - Add a `PATCH /api/v1/users/me/locale` endpoint to let a logged-in user set it.
+  - *Why? Because* this is the one piece of localization state that has to live on the backend — it's what tells 12.2 which language to render a transactional email in, and what the frontend reads on login to set its initial language instead of always starting in English.
+
+- [ ] **12.2 Backend — localize transactional emails**
+  - Extend the `EmailSender` port (3.5) so the subscriber passes the recipient's `locale` (12.1) alongside the existing verification link.
+  - Template selection under `src/infra/mail/templates/<lang>/verification-email.ts` (`en`, `pt`); `ConsoleEmailSender` renders whichever template matches the locale, falling back to `en`.
+  - *Why? Because* this is the same swap-the-adapter-not-the-domain-logic pattern already used for the event bus and mail sender in 2.5/3.5 — the subscriber's job (react to `UserRegistered`) doesn't change, only which template the port renders.
+
+- [ ] **12.3 Frontend — i18n infrastructure**
+  - Install `react-i18next` and `i18next-browser-languagedetector`.
+  - Translation files under `frontend/src/i18n/locales/{en,pt}/`, organized by the existing feature folders (`tournaments.json`, `auth.json`, etc.) rather than one giant file.
+  - A language switcher in the nav (English/Portuguese only), persisting the choice to `localStorage`; once a user is logged in, changing it also calls 12.1's `PATCH` so the preference follows them across devices.
+  - *Why? Because* one place should resolve and expose the active locale instead of every component reaching for its own translation logic, and the two-language scope keeps the switcher itself simple — a dropdown of two options, not a locale picker built for a set that doesn't exist yet.
+
+- [ ] **12.4 Frontend — translate the existing feature set**
+  - Extract every hardcoded UI string across the tournament/phase/group/match/player screens and the auth screens (3.11–3.13) into translation keys.
+  - Ship both English and Portuguese in full — no screen left partially translated — so string interpolation and pluralization (e.g. "1 match" / "2 matches" vs. Portuguese's own plural rules) are proven against a real second language, not just scaffolded for one.
+  - *Why? Because* a single-language i18n setup hides exactly the bugs a second language exposes — string concatenation that assumes English word order, or pluralization logic that only happens to work for English.
+
+- [ ] **12.5 Locale-aware date & number formatting**
+  - Replace manual date/number formatting (match dates, standings, timestamps) with `Intl.DateTimeFormat`/`Intl.NumberFormat`, keyed off the active locale from 12.3 (`en-US`/`pt-BR` conventions).
+  - *Why? Because* translating labels while leaving dates in a fixed format (e.g. `MM/DD/YYYY` shown to a Portuguese-reading user who expects `DD/MM/YYYY`) produces a UI that looks translated but still reads as foreign — formatting conventions are as much a part of localization as the words are.
+
+---
+
 ## 4. Dependency Map Between Phases
 
 ```
@@ -648,6 +682,11 @@ Phase 5 + Phase 6
   └─► Phase 9 (Kubernetes)      ← health checks and metrics must exist first;
                                   local-only (minikube/kind), independent of
                                   Phase 10 — Phase 10 deliberately skips EKS for cost
+Phase 3
+  └─► Phase 12 (Localization)   ← only real dependency: auth's frontend screens
+                                  and verification email exist to translate.
+                                  Sequenced last by product decision, not by any
+                                  blocking dependency on Phases 4-11.
 ```
 
 ---

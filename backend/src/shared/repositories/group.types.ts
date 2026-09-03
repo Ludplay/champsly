@@ -19,6 +19,7 @@ export type GroupWithStats = InferAttributes<Group> & {
 
 export interface GroupRepository {
     getAll(): Promise<Group[]>;
+    getAllByUser(userId: number): Promise<Group[]>;
     getTournamentGroups(tournamentId: number): Promise<GroupWithPlayers[]>;
     getOne(id: number): Promise<Group | null>;
     create(data: CreationAttributes<Group>): Promise<Group>;

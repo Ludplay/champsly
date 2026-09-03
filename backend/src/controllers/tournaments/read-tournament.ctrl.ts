@@ -3,7 +3,7 @@ const ReadTournamentController = async (req: Request, res: Response, next: NextF
     const readTournamentInteractor = req.container.resolve('readTournamentInteractor');
     const { id } = req.params;
 
-    const response = await readTournamentInteractor.execute(Number(id));
+    const response = await readTournamentInteractor.execute(Number(id), req.user!.id);
 
     return res.status(200).json(response);
 

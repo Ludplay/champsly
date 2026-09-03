@@ -1,13 +1,6 @@
-import axios from 'axios';
+import api from '@/lib/api-client';
 
 import type { Group, GroupInput } from '../types/groups';
-
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? '/api/v1',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
 
 export async function getGroups(): Promise<Group[]> {
   const response = await api.get<Group[]>('/get-groups');

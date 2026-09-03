@@ -3,3 +3,5 @@ export { MatchStatus, isMatchStatus } from './match-status';
 export { PhaseType, isPhaseType } from './phase-type';
 export { Score } from './score';
 export type { ScoreWinner } from './score';
+export { AccountStatus, isAccountStatus } from './account-status';
+export { Email } from './email';

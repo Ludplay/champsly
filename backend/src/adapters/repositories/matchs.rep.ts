@@ -21,6 +21,21 @@ class SequelizeMatchRepository implements MatchRepository {
         return await this.matchModel.findAll();
     }
 
+    async getAllByUser(userId: number) {
+        return await this.matchModel.findAll({
+            include: [
+                {
+                    model: this.phaseModel,
+                    as: 'Phase',
+                    attributes: [],
+                    include: [
+                        { association: 'Tournaments', attributes: [], where: { user_id: userId } }
+                    ]
+                }
+            ]
+        });
+    }
+
     async getTournamentMatches(tournamentId: number) {
         const options = {
             include: [

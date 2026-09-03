@@ -38,7 +38,7 @@ class CreateTournamentInteractor {
         this.eventBus = params.eventBus;
     }
 
-    async execute(input: CreateTournamentInput) {
+    async execute(input: CreateTournamentInput, userId: number) {
         const { name, groups_quantity, phases_quantity, status, players } = input;
 
         if (!isTournamentStatus(status)) {
@@ -49,7 +49,8 @@ class CreateTournamentInteractor {
             name,
             groups_quantity,
             phases_quantity,
-            status
+            status,
+            user_id: userId
         };
 
         const tournament = await this.tournamentRepository.create(inputRecord);

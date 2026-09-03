@@ -4,7 +4,7 @@ const CreateTournamentController = async (req: Request, res: Response, next: Nex
 
     const body = req.body;
     
-    const response = await createTournamentInteractor.execute(body);
+    const response = await createTournamentInteractor.execute(body, req.user!.id);
 
     return res.status(200).json(response);
 

@@ -3,7 +3,7 @@ const GetTournamentMatchsController = async (req: Request, res: Response, next: 
     const getTournamentMatchsInteractor = req.container.resolve('getTournamentMatchsInteractor');
 
     const { tournamentId } = req.params;
-    const response = await getTournamentMatchsInteractor.execute(Number(tournamentId));
+    const response = await getTournamentMatchsInteractor.execute(Number(tournamentId), req.user!.id);
 
     return res.status(200).json(response);
 

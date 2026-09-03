@@ -7,6 +7,7 @@ import { Match } from '../../infra/db/models/match';
 import type { Player } from '../../infra/db/models/player';
 import { MatchStatus } from '../../shared/value-objects';
 import type { GroupRepository } from '../../shared/repositories/group.types';
+import type TournamentOwnershipService from '../../shared/services/tournament-ownership.service';
 
 interface RoundRobinPlayer {
     id: number | null;
@@ -18,6 +19,7 @@ class GenerateGroupsPhaseMatchesInteractor {
     private matchRepository: MatchRepository;
     private groupRepository: GroupRepository;
     private createMatchInteractor: CreateMatchInteractor;
+    private tournamentOwnershipService: TournamentOwnershipService;
     private logger: typeof logger;
 
     constructor(params: {
@@ -25,16 +27,21 @@ class GenerateGroupsPhaseMatchesInteractor {
         matchRepository: MatchRepository;
         groupRepository: GroupRepository;
         createMatchInteractor: CreateMatchInteractor;
+        tournamentOwnershipService: TournamentOwnershipService;
         logger: typeof logger;
     }) {
         this.phaseRepository = params.phaseRepository;
         this.matchRepository = params.matchRepository;
         this.groupRepository = params.groupRepository;
         this.createMatchInteractor = params.createMatchInteractor;
+        this.tournamentOwnershipService = params.tournamentOwnershipService;
         this.logger = params.logger;
     }
 
-    async execute(tournamentId: number) {
+    async execute(tournamentId: number, userId: number) {
+        // Kept outside the try/catch below, which swallows errors as return values
+        // instead of rejecting — an ownership failure needs to actually propagate.
+        await this.tournamentOwnershipService.getTournamentOwner(tournamentId, userId);
 
         try {
             const groupsPhaseId = await this.getGroupsPhaseId(tournamentId);

@@ -1,11 +1,6 @@
-import axios from 'axios';
+import api from '@/lib/api-client';
 
 import type { MatchResponse, PhaseMatches } from '../types/matches';
-
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? '/api/v1',
-  headers: { 'Content-Type': 'application/json' },
-});
 
 interface MatchApiResponseWrapper {
   data: MatchResponse;

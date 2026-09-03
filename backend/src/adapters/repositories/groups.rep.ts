@@ -25,6 +25,17 @@ class SequelizeGroupRepository implements GroupRepository {
         return await this.groupModel.findAll(options);
     }
 
+    async getAllByUser(userId: number) {
+        const options = {
+            include: [
+                { model: this.playerModel, as: 'Players' },
+                { association: 'Tournament', attributes: [], where: { user_id: userId } }
+            ]
+        };
+
+        return await this.groupModel.findAll(options);
+    }
+
     async getTournamentGroups(tournamentId: number): Promise<GroupWithPlayers[]> {
         const options = {
             include: [{

@@ -4,7 +4,7 @@ const CreateGroupController = async (req: Request, res: Response, next: NextFunc
 
     const body = req.body;
     
-    const response = await createGroupInteractor.execute(body);
+    const response = await createGroupInteractor.execute(body, req.user!.id);
 
     return res.status(200).json(response);
 

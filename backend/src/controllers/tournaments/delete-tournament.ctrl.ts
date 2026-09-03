@@ -3,7 +3,7 @@ const DeleteTournamentController = async (req: Request, res: Response, next: Nex
     const deleteTournamentInteractor = req.container.resolve('deleteTournamentInteractor');
     const { id } = req.params;
 
-    const deleted = await deleteTournamentInteractor.execute(Number(id));
+    const deleted = await deleteTournamentInteractor.execute(Number(id), req.user!.id);
 
     return res.status(200).json({ deleted });
 

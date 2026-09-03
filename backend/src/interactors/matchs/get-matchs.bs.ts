@@ -7,8 +7,8 @@ class GetMatchsInteractor {
         this.matchRepository = params.matchRepository;
     }
 
-    async execute() {
-        return await this.matchRepository.getAll();
+    async execute(userId: number) {
+        return await this.matchRepository.getAllByUser(userId);
     }
 
 }

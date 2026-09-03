@@ -66,18 +66,19 @@ See `backend/CLAUDE.md` for the full layer/naming conventions and `frontend/CLAU
 
 ### System design
 
-![Champsly architecture diagram — Phase 2 complete](system_design/v2.png)
+![Champsly architecture diagram — Phase 3 complete](system_design/v3.png)
 
-A snapshot as of Phase 2 completion: solid boxes are implemented and wired, including the new shared/domain layer (value objects, `GroupStandingsService`, the domain event bus) added in Phase 2's DDD-lite pass. Dashed ones (repository port interfaces, Kafka/Zookeeper) exist but aren't consumed yet — that lands in Phase 5. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each remaining piece lands as later phases land, or the [Phase 1 diagram](system_design/v1.png) for the earlier snapshot.
+A snapshot as of Phase 3 completion: solid boxes are implemented and wired, including the new identity & session layer added in Phase 3 — password hashing and JWT/refresh-token infrastructure, the `users`/`refresh_tokens`/`email_verification_tokens` tables, the `authenticate.middleware.ts` + `TournamentOwnershipService` auth gate, and the frontend's `AuthContext` and `api-client` refresh-and-retry interceptor. Kafka/Zookeeper still aren't consumed — that lands in Phase 5. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each remaining piece lands as later phases land, or the [Phase 2](system_design/v2.png) / [Phase 1](system_design/v1.png) diagrams for earlier snapshots.
 
 ## Project status
 
-Phases 1 and 2 of the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) are complete:
+Phases 1 through 3 of the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) are complete:
 
 - **Phase 1 — Foundation Hardening:** environment config, global error handling, request validation, structured logging, API versioning, rate limiting, Docker Compose, a full TypeScript migration, and repository interfaces enforcing dependency inversion.
 - **Phase 2 — Entities & Value Objects (DDD-lite):** type-safe value objects (`TournamentStatus`, `MatchStatus`, `Score`, `PhaseType`), entity behavior moved onto the models (`Tournament.canStart/canFinish`, `Match.recordResult`, `Group.canAddPlayer`), standings computation extracted out of the repository into a pure service, `CreateTournamentInteractor` decoupled from other interactors, and an in-memory domain event bus (`TournamentCreated`, `MatchResultRecorded`, `PhaseCompleted`).
+- **Phase 3 — Authentication & Login:** bcrypt password hashing, short-lived JWT access tokens with rotating opaque refresh tokens (reuse of a rotated-away token triggers theft detection, killing the whole session chain), email verification with a resend flow, `authenticate.middleware.ts` and `TournamentOwnershipService` scoping every tournament/group/phase/match to its owner, per-route rate limiting plus Helmet/CSP, and the matching frontend: `AuthContext`, a shared `api-client` with a 401→refresh→retry interceptor, register/login/verify-email screens, and protected routes.
 
-Phase 3 (Authentication & Login) onward — CQRS, Kafka event-driven architecture, observability, testing, AWS deployment, Kubernetes — is planned but not yet started; see the plan for the full roadmap and the reasoning behind each step.
+Phase 4 (CQRS) onward — Kafka event-driven architecture, observability, testing, AWS deployment, Kubernetes — is planned but not yet started; see the plan for the full roadmap and the reasoning behind each step.
 
 ## License
 

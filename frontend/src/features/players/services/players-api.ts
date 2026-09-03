@@ -1,13 +1,6 @@
-import axios from 'axios'
+import api from '@/lib/api-client'
 
 import type { Player, PlayerInput } from '../types/players'
-
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? '/api/v1',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-})
 
 export async function getPlayers(): Promise<Player[]> {
   const response = await api.get<Player[]>('/get-players')

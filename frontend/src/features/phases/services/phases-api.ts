@@ -1,13 +1,6 @@
-import axios from 'axios';
+import api from '@/lib/api-client';
 
 import type { Phase, PhaseInput } from '../types/phases';
-
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? '/api/v1',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
 
 export async function getPhases(): Promise<Phase[]> {
   const response = await api.get<Phase[]>('/get-phases');

@@ -3,11 +3,22 @@ const express = require('express');
 const router = express.Router();
 
 const validateMiddleware = require('../../middlewares/validate.middleware');
+const authenticateMiddleware = require('../../middlewares/authenticate.middleware');
+const { authLimiter } = require('../../middlewares/rate-limit.middleware');
 const { createPlayerSchema, updatePlayerSchema } = require('../../schemas/player.schema');
 const { createTournamentSchema, updateTournamentSchema, generateGroupsPhaseMatchesSchema } = require('../../schemas/tournament.schema');
 const { createPhaseSchema, updatePhaseSchema } = require('../../schemas/phase.schema');
 const { createGroupSchema, updateGroupSchema } = require('../../schemas/group.schema');
 const { createMatchSchema, updateMatchSchema } = require('../../schemas/match.schema');
+const { registrationSchema, verifyEmailSchema, loginSchema, resendVerificationSchema } = require('../../schemas/auth.schema');
+
+// Auth
+const registrationController = require('../../../../controllers/auth/registration.ctrl');
+const verifyEmailController = require('../../../../controllers/auth/verify-email.ctrl');
+const loginController = require('../../../../controllers/auth/login.ctrl');
+const refreshController = require('../../../../controllers/auth/refresh.ctrl');
+const logoutController = require('../../../../controllers/auth/logout.ctrl');
+const resendVerificationController = require('../../../../controllers/auth/resend-verification.ctrl');
 
 // Players
 const getPlayersController = require('../../../../controllers/players/get-players.ctrl');
@@ -47,10 +58,44 @@ const readMatchController = require('../../../../controllers/matchs/read-match.c
 const updateMatchController = require('../../../../controllers/matchs/update-match.ctrl');
 const deleteMatchController = require('../../../../controllers/matchs/delete-match.ctrl');
 
+/* *** TESTS *** */
+router.get('/test', (req: Request, res: Response) => {
+    const users = [
+        { name: 'Alice', email: 'Alice@example.com', role: 'admin' },
+        { name: 'Bob', email: 'Bob@example.com', role: 'user' },
+        { name: 'Charlie', email: 'Charlie@example.com', role: 'user' },
+        { name: 'David', email: 'David@example.com', role: 'user' },
+        { name: 'Eve', email: 'Eve@example.com', role: 'user' },
+        { name: 'Frank', email: 'Frank@example.com', role: 'user' },
+        { name: 'Grace', email: 'Grace@example.com', role: 'user' },
+        { name: 'Heidi', email: 'Heidi@example.com', role: 'user' }
+    ];
+
+    res.status(200).json(users);
+});
+/* *** END TESTS *** */
+
 router.get('/', (req: Request, res: Response) => {
     req.log.info('here at index');
     res.sendStatus(200);
 });
+
+// Tighter limit than the global one, covering every /auth/* route below (register,
+// verify-email, login, refresh, and the protected logout further down).
+router.use('/auth', authLimiter);
+
+// Auth routes — the only ones reachable without a token (logout still needs one)
+router.post('/auth/register', validateMiddleware(registrationSchema), registrationController);
+router.post('/auth/verify-email', validateMiddleware(verifyEmailSchema), verifyEmailController);
+router.post('/auth/login', validateMiddleware(loginSchema), loginController);
+router.post('/auth/refresh', refreshController);
+router.post('/auth/resend-verification', validateMiddleware(resendVerificationSchema), resendVerificationController);
+
+// Every route below this line requires a valid `Authorization: Bearer <token>`.
+router.use(authenticateMiddleware);
+
+// Logout is protected too — it needs req.user to know which session to revoke.
+router.post('/auth/logout', logoutController);
 
 // Player routes
 router.get('/get-players', getPlayersController);
@@ -89,26 +134,6 @@ router.post('/match', validateMiddleware(createMatchSchema), createMatchControll
 router.get('/match/:id', readMatchController);
 router.put('/match/:id', validateMiddleware(updateMatchSchema), updateMatchController);
 router.delete('/match/:id', deleteMatchController);
-
-
-/* *** TESTS *** */
-router.get('/test', (req: Request, res: Response) => {
-    const users = [
-        { name: 'Alice', email: 'Alice@example.com', role: 'admin' },
-        { name: 'Bob', email: 'Bob@example.com', role: 'user' },
-        { name: 'Charlie', email: 'Charlie@example.com', role: 'user' },
-        { name: 'David', email: 'David@example.com', role: 'user' },
-        { name: 'Eve', email: 'Eve@example.com', role: 'user' },
-        { name: 'Frank', email: 'Frank@example.com', role: 'user' },
-        { name: 'Grace', email: 'Grace@example.com', role: 'user' },
-        { name: 'Heidi', email: 'Heidi@example.com', role: 'user' }
-    ];
-
-    res.status(200).json(users);
-});
-
-
-/* *** END TESTS *** */
 
 module.exports = router;
 

@@ -3,7 +3,7 @@ const DeletePhaseController = async (req: Request, res: Response, next: NextFunc
     const deletePhaseInteractor = req.container.resolve('deletePhaseInteractor');
     const { id } = req.params;
 
-    const deleted = await deletePhaseInteractor.execute(Number(id));
+    const deleted = await deletePhaseInteractor.execute(Number(id), req.user!.id);
 
     return res.status(200).json({ deleted });
 

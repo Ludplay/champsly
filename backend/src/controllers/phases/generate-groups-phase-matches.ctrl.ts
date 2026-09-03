@@ -8,7 +8,7 @@ const GenerateGroupsPhaseMatchesController = async (req: Request, res: Response,
             .json('tournament id not sent');
     }
 
-    const response = await interactor.execute(req.body.id);
+    const response = await interactor.execute(req.body.id, req.user!.id);
 
     //if ()
 

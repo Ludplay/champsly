@@ -10,9 +10,9 @@ class GetTournamentsInteractor {
         this.logger = params.logger;
     }
 
-    async execute() {
+    async execute(userId: number) {
 
-        const tournaments = await this.tournamentRepository.getAll();
+        const tournaments = await this.tournamentRepository.getAllByUser(userId);
 
         this.logger.debug({ tournaments }, 'Fetched tournaments');
 

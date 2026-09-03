@@ -24,6 +24,17 @@ class SequelizeTournamentRepository implements TournamentRepository {
         return await this.tournamentModel.findAll(options);
     }
 
+    async getAllByUser(userId: number) {
+        const options = {
+            where: { user_id: userId },
+            include: [{
+                model: this.playerModel, as: 'Players'
+            }]
+        };
+
+        return await this.tournamentModel.findAll(options);
+    }
+
     async getOne(id: number) {
         const options = {
             include: [{ model: this.playerModel, as: 'Players' }]

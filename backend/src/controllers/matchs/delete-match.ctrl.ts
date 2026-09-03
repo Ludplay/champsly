@@ -3,7 +3,7 @@ const DeleteMatchController = async (req: Request, res: Response, next: NextFunc
     const deleteMatchInteractor = req.container.resolve('deleteMatchInteractor');
     const { id } = req.params;
 
-    const deleted = await deleteMatchInteractor.execute(Number(id));
+    const deleted = await deleteMatchInteractor.execute(Number(id), req.user!.id);
 
     return res.status(200).json({ deleted });
 

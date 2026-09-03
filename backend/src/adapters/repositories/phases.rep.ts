@@ -22,6 +22,18 @@ class SequelizePhaseRepository implements PhaseRepository {
         });
     }
 
+    async getAllByUser(userId: number) {
+        return await this.phaseModel.findAll({
+            include: [
+                {
+                    association: 'Tournaments',
+                    attributes: ['id', 'name'],
+                    where: { user_id: userId }
+                }
+            ]
+        });
+    }
+
     async getOne(id: number) {
         return await this.phaseModel.findByPk(id);
     }

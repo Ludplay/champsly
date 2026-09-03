@@ -1,6 +1,7 @@
 import { Model, DataTypes, Sequelize, InferAttributes, InferCreationAttributes, CreationOptional, NonAttribute, BelongsToManyAddAssociationsMixin } from 'sequelize';
 import type { Db } from './models.types';
 import type { Player } from './player';
+import type { User } from './user';
 import { TournamentStatus } from '../../../shared/value-objects';
 
 export class Tournament extends Model<InferAttributes<Tournament>, InferCreationAttributes<Tournament>> {
@@ -9,9 +10,11 @@ export class Tournament extends Model<InferAttributes<Tournament>, InferCreation
     declare groups_quantity: number;
     declare phases_quantity: number;
     declare status: TournamentStatus;
+    declare user_id: CreationOptional<number | null>;
     declare created_at: CreationOptional<Date>;
     declare updated_at: CreationOptional<Date>;
     declare Players?: NonAttribute<Player[]>;
+    declare User?: NonAttribute<User>;
     declare addPlayers: BelongsToManyAddAssociationsMixin<Player, number>;
 
     static associate(models: Db) {
@@ -20,6 +23,11 @@ export class Tournament extends Model<InferAttributes<Tournament>, InferCreation
             as: 'Players',
             foreignKey: 'tournament_id',
             otherKey: 'player_id'
+        });
+
+        Tournament.belongsTo(models.User, {
+            foreignKey: 'user_id',
+            as: 'User'
         });
     }
 
@@ -54,6 +62,10 @@ export default function initTournamentModel(sequelize: Sequelize): typeof Tourna
         status: {
             type: DataTypes.STRING,
             allowNull: false
+        },
+        user_id: {
+            type: DataTypes.INTEGER,
+            allowNull: true
         },
         created_at: {
             type: DataTypes.DATE,

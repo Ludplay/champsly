@@ -3,6 +3,7 @@ import { Match } from '../../infra/db/models/match';
 
 export interface MatchRepository {
     getAll(): Promise<Match[]>;
+    getAllByUser(userId: number): Promise<Match[]>;
     getTournamentMatches(tournamentId: number): Promise<Match[]>;
     getOne(id: number): Promise<Match | null>;
     create(data: CreationAttributes<Match>): Promise<Match>;

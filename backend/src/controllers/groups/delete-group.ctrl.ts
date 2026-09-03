@@ -3,7 +3,7 @@ const DeleteGroupController = async (req: Request, res: Response, next: NextFunc
     const deleteGroupInteractor = req.container.resolve('deleteGroupInteractor');
     const { id } = req.params;
 
-    const deleted = await deleteGroupInteractor.execute(Number(id));
+    const deleted = await deleteGroupInteractor.execute(Number(id), req.user!.id);
 
     return res.status(200).json({ deleted });
 

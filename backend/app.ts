@@ -2,6 +2,8 @@ import dotenv from 'dotenv';
 dotenv.config({ quiet: true });
 
 import express from 'express';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
 import { scopePerRequest } from 'awilix-express';
 
@@ -14,8 +16,23 @@ import { globalLimiter, writeLimiter } from './src/infra/http/middlewares/rate-l
 const app = express();
 const port = Number(process.env.PORT) || 4001;
 
+// Domain-event subscribers are wired once at startup, not per-request — resolving
+// the eventBus/emailSender singletons and calling .subscribe() explicitly here keeps
+// the wiring visible instead of hiding it as a constructor side effect.
+container.resolve('sendVerificationEmailOnUserRegisteredSubscriber').subscribe();
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      objectSrc: ["'none'"]
+    }
+  }
+}));
 app.use(pinoHttp({ logger }));
 app.use(express.json());
+app.use(cookieParser());
 app.use(globalLimiter);
 app.use(writeLimiter);
 app.use(scopePerRequest(container));

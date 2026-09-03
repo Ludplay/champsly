@@ -1,14 +1,14 @@
-import type { PhaseRepository } from '../../shared/repositories/phase.types';
+import type TournamentOwnershipService from '../../shared/services/tournament-ownership.service';
 
 class ReadPhaseInteractor {
-    private phaseRepository: PhaseRepository;
+    private tournamentOwnershipService: TournamentOwnershipService;
 
-    constructor(params: { phaseRepository: PhaseRepository }) {
-        this.phaseRepository = params.phaseRepository;
+    constructor(params: { tournamentOwnershipService: TournamentOwnershipService }) {
+        this.tournamentOwnershipService = params.tournamentOwnershipService;
     }
 
-    async execute(id: number) {
-        return await this.phaseRepository.getOne(id);
+    async execute(id: number, userId: number) {
+        return await this.tournamentOwnershipService.getPhaseOwner(id, userId);
     }
 
 }

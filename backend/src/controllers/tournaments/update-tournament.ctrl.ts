@@ -4,7 +4,7 @@ const UpdateTournamentController = async (req: Request, res: Response, next: Nex
     const { id } = req.params;
     const body = req.body;
 
-    const response = await updateTournamentInteractor.execute(Number(id), body);
+    const response = await updateTournamentInteractor.execute(Number(id), body, req.user!.id);
 
     return res.status(200).json(response);
 

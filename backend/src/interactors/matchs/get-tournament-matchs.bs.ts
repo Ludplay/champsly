@@ -1,4 +1,5 @@
 import type { MatchRepository } from '../../shared/repositories/match.types';
+import type TournamentOwnershipService from '../../shared/services/tournament-ownership.service';
 
 interface RoundMatch {
     id: number;
@@ -22,12 +23,19 @@ interface PhaseMatches {
 
 class GetTournamentMatchsInteractor {
     private matchRepository: MatchRepository;
+    private tournamentOwnershipService: TournamentOwnershipService;
 
-    constructor(params: { matchRepository: MatchRepository }) {
+    constructor(params: {
+        matchRepository: MatchRepository;
+        tournamentOwnershipService: TournamentOwnershipService;
+    }) {
         this.matchRepository = params.matchRepository;
+        this.tournamentOwnershipService = params.tournamentOwnershipService;
     }
 
-    async execute(tournamentId: number) {
+    async execute(tournamentId: number, userId: number) {
+        await this.tournamentOwnershipService.getTournamentOwner(tournamentId, userId);
+
         const matches = await this.matchRepository.getTournamentMatches(tournamentId);
 
         const phasesMap = new Map<number, PhaseMatches>();

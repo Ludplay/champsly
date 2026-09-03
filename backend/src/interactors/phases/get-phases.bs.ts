@@ -9,9 +9,9 @@ class GetPhasesInteractor {
         this.phaseRepository = params.phaseRepository;
     }
 
-    async execute() {
+    async execute(userId: number) {
 
-        const phases = await this.phaseRepository.getAll();
+        const phases = await this.phaseRepository.getAllByUser(userId);
 
         const mappedPhases = phases.map(record => {
             const phase = record.toJSON<InferAttributes<Phase> & { Tournaments?: { name: string } }>();
