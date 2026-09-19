@@ -1,9 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
+import { DeleteMatchCommand } from '../../application/commands/delete-match.command';
+
 const DeleteMatchController = async (req: Request, res: Response, next: NextFunction) => {
-    const deleteMatchInteractor = req.container.resolve('deleteMatchInteractor');
+    const commandBus = req.container.resolve('commandBus');
     const { id } = req.params;
 
-    const deleted = await deleteMatchInteractor.execute(Number(id), req.user!.id);
+    const input = { id: Number(id), userId: req.user!.id };
+    const command = new DeleteMatchCommand(input);
+
+    const deleted = await commandBus.execute(command);
 
     return res.status(200).json({ deleted });
 

@@ -1,10 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
-const UpdatePhaseController = async (req: Request, res: Response, next: NextFunction) => {
-    const updatePhaseInteractor = req.container.resolve('updatePhaseInteractor');
-    const { id } = req.params;
-    const body = req.body;
+import { UpdatePhaseCommand } from '../../application/commands/update-phase.command';
 
-    const response = await updatePhaseInteractor.execute(Number(id), body, req.user!.id);
+const UpdatePhaseController = async (req: Request, res: Response, next: NextFunction) => {
+    const commandBus = req.container.resolve('commandBus');
+    const { id } = req.params;
+
+    const input = { id: Number(id), changes: req.body, userId: req.user!.id };
+    const command = new UpdatePhaseCommand(input);
+
+    const response = await commandBus.execute(command);
 
     return res.status(200).json(response);
 

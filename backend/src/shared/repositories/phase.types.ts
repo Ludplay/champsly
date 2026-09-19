@@ -10,4 +10,6 @@ export interface PhaseRepository {
     delete(id: number): Promise<number>;
     getTournamentPhases(tournamentId: number): Promise<Phase[]>;
     getTournamentGroupsPhase(tournamentId: number): Promise<Phase | null>;
+    // Like getOne, but with the Tournament association loaded for display.
+    getOneWithTournament(id: number): Promise<Phase | null>;
 }

@@ -1,9 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
+import { GetTournamentGroupsQuery } from '../../application/queries/get-tournament-groups.query';
+
 const GetTournamentGroupsController = async (req: Request, res: Response, next: NextFunction) => {
-    const getGroupsInteractor = req.container.resolve('getGroupsInteractor');
+    const queryBus = req.container.resolve('queryBus');
     const { tournamentId } = req.params;
 
-    const response = await getGroupsInteractor.executeByTournament(Number(tournamentId), req.user!.id);
+    const input = { tournamentId: Number(tournamentId), userId: req.user!.id };
+    const query = new GetTournamentGroupsQuery(input);
+
+    const response = await queryBus.execute(query);
 
     return res.status(200).json(response);
 };

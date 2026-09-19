@@ -2,27 +2,27 @@
 import { createContainer, asClass, asValue, AwilixContainer } from 'awilix';
 
 import logger from './logger';
-import models from '../db/models';
+import { db as models, readDb as readModels } from '../db/models';
 import type { Db } from '../db/models/models.types';
 
 // Sequelize Repositories
-import SequelizePlayerRepository from '../../adapters/repositories/players.rep';
-import SequelizeTournamentRepository from '../../adapters/repositories/tournaments.rep';
-import SequelizePhaseRepository from '../../adapters/repositories/phases.rep';
-import SequelizeGroupRepository from '../../adapters/repositories/groups.rep';
-import SequelizeMatchRepository from '../../adapters/repositories/matchs.rep';
-import SequelizeUserRepository from '../../adapters/repositories/users.rep';
-import SequelizeRefreshTokenRepository from '../../adapters/repositories/refresh-tokens.rep';
-import SequelizeEmailVerificationTokenRepository from '../../adapters/repositories/email-verification-tokens.rep';
+import SequelizePlayerRepository from '../adapters/repositories/players.rep';
+import SequelizeTournamentRepository from '../adapters/repositories/tournaments.rep';
+import SequelizePhaseRepository from '../adapters/repositories/phases.rep';
+import SequelizeGroupRepository from '../adapters/repositories/groups.rep';
+import SequelizeMatchRepository from '../adapters/repositories/matchs.rep';
+import SequelizeUserRepository from '../adapters/repositories/users.rep';
+import SequelizeRefreshTokenRepository from '../adapters/repositories/refresh-tokens.rep';
+import SequelizeEmailVerificationTokenRepository from '../adapters/repositories/email-verification-tokens.rep';
 
 // Mail
-import ConsoleEmailSender from '../mail/console-email-sender';
+import ConsoleEmailSender from '../adapters/mail/console-email-sender';
 
 // Interface Repositories
 import type { PlayerRepository } from '../../shared/repositories/player.types';
 import type { TournamentRepository } from '../../shared/repositories/tournament.types';
 import type { PhaseRepository } from '../../shared/repositories/phase.types';
-import type { GroupRepository } from '../../shared/repositories/group.types';
+import type { GroupRepository, GroupReadRepository } from '../../shared/repositories/group.types';
 import type { MatchRepository } from '../../shared/repositories/match.types';
 import type { UserRepository } from '../../shared/repositories/user.types';
 import type { RefreshTokenRepository } from '../../shared/repositories/refresh-token.types';
@@ -30,45 +30,57 @@ import type { EmailVerificationTokenRepository } from '../../shared/repositories
 import type { EventBus } from '../../shared/events/event-bus.types';
 import type { EmailSender } from '../../shared/mail/email-sender.types';
 
-// Interactors
-import GetPlayersInteractor from '../../interactors/players/get-players.bs';
-import CreatePlayerInteractor from '../../interactors/players/create-player.bs';
-import ReadPlayerInteractor from '../../interactors/players/read-player.bs';
-import UpdatePlayerInteractor from '../../interactors/players/update-player.bs';
-import DeletePlayerInteractor from '../../interactors/players/delete-player.bs';
+// Query handlers (reads)
+import GetPlayersQueryHandler from '../../application/queries/handlers/get-players.query-handler';
+import ReadPlayerQueryHandler from '../../application/queries/handlers/read-player.query-handler';
 
-import GetTournamentsInteractor from '../../interactors/tournaments/get-tournaments.bs';
-import CreateTournamentInteractor from '../../interactors/tournaments/create-tournament.bs';
-import ReadTournamentInteractor from '../../interactors/tournaments/read-tournament.bs';
-import UpdateTournamentInteractor from '../../interactors/tournaments/update-tournament.bs';
-import DeleteTournamentInteractor from '../../interactors/tournaments/delete-tournament.bs';
+import GetTournamentsQueryHandler from '../../application/queries/handlers/get-tournaments.query-handler';
+import ReadTournamentQueryHandler from '../../application/queries/handlers/read-tournament.query-handler';
 
-import GetPhasesInteractor from '../../interactors/phases/get-phases.bs';
-import CreatePhaseInteractor from '../../interactors/phases/create-phase.bs';
-import ReadPhaseInteractor from '../../interactors/phases/read-phase.bs';
-import UpdatePhaseInteractor from '../../interactors/phases/update-phase.bs';
-import DeletePhaseInteractor from '../../interactors/phases/delete-phase.bs';
-import GenerateGroupsPhaseMatchesInteractor from '../../interactors/phases/generate-groups-phase-matches.bs';
+import GetPhasesQueryHandler from '../../application/queries/handlers/get-phases.query-handler';
+import ReadPhaseQueryHandler from '../../application/queries/handlers/read-phase.query-handler';
 
-import GetGroupsInteractor from '../../interactors/groups/get-groups.bs';
-import CreateGroupInteractor from '../../interactors/groups/create-group.bs';
-import ReadGroupInteractor from '../../interactors/groups/read-group.bs';
-import UpdateGroupInteractor from '../../interactors/groups/update-group.bs';
-import DeleteGroupInteractor from '../../interactors/groups/delete-group.bs';
+import GetGroupsQueryHandler from '../../application/queries/handlers/get-groups.query-handler';
+import GetTournamentGroupsQueryHandler from '../../application/queries/handlers/get-tournament-groups.query-handler';
+import ReadGroupQueryHandler from '../../application/queries/handlers/read-group.query-handler';
 
-import GetMatchsInteractor from '../../interactors/matchs/get-matchs.bs';
-import GetTournamentMatchsInteractor from '../../interactors/matchs/get-tournament-matchs.bs';
-import CreateMatchInteractor from '../../interactors/matchs/create-match.bs';
-import ReadMatchInteractor from '../../interactors/matchs/read-match.bs';
-import UpdateMatchInteractor from '../../interactors/matchs/update-match.bs';
-import DeleteMatchInteractor from '../../interactors/matchs/delete-match.bs';
+import GetMatchsQueryHandler from '../../application/queries/handlers/get-matchs.query-handler';
+import GetTournamentMatchesQueryHandler from '../../application/queries/handlers/get-tournament-matches.query-handler';
+import ReadMatchQueryHandler from '../../application/queries/handlers/read-match.query-handler';
 
+// Command handlers (writes)
+import CreatePlayerCommandHandler from '../../application/commands/handlers/create-player.command-handler';
+import UpdatePlayerCommandHandler from '../../application/commands/handlers/update-player.command-handler';
+import DeletePlayerCommandHandler from '../../application/commands/handlers/delete-player.command-handler';
+
+import CreateTournamentCommandHandler from '../../application/commands/handlers/create-tournament.command-handler';
+import UpdateTournamentCommandHandler from '../../application/commands/handlers/update-tournament.command-handler';
+import DeleteTournamentCommandHandler from '../../application/commands/handlers/delete-tournament.command-handler';
+
+import CreatePhaseCommandHandler from '../../application/commands/handlers/create-phase.command-handler';
+import UpdatePhaseCommandHandler from '../../application/commands/handlers/update-phase.command-handler';
+import DeletePhaseCommandHandler from '../../application/commands/handlers/delete-phase.command-handler';
+import GenerateGroupsPhaseMatchesCommandHandler from '../../application/commands/handlers/generate-groups-phase-matches.command-handler';
+
+import CreateGroupCommandHandler from '../../application/commands/handlers/create-group.command-handler';
+import UpdateGroupCommandHandler from '../../application/commands/handlers/update-group.command-handler';
+import DeleteGroupCommandHandler from '../../application/commands/handlers/delete-group.command-handler';
+
+import CreateMatchCommandHandler from '../../application/commands/handlers/create-match.command-handler';
+import UpdateMatchCommandHandler from '../../application/commands/handlers/update-match.command-handler';
+import DeleteMatchCommandHandler from '../../application/commands/handlers/delete-match.command-handler';
+
+// Auth interactors (not part of the command/query split — see Cradle notes)
 import RegistrationInteractor from '../../interactors/auth/registration.bs';
 import VerifyEmailInteractor from '../../interactors/auth/verify-email.bs';
 import LoginInteractor from '../../interactors/auth/login.bs';
 import RefreshInteractor from '../../interactors/auth/refresh.bs';
 import LogoutInteractor from '../../interactors/auth/logout.bs';
 import ResendVerificationInteractor from '../../interactors/auth/resend-verification.bs';
+
+// Buses
+import CommandBus from '../../application/bus/command-bus';
+import QueryBus from '../../application/bus/query-bus';
 
 // Subscribers
 import SendVerificationEmailOnUserRegisteredSubscriber from '../events/subscribers/send-verification-email-on-user-registered';
@@ -77,47 +89,53 @@ import SendVerificationEmailOnUserRegisteredSubscriber from '../events/subscribe
 import TournamentOwnershipService from '../../shared/services/tournament-ownership.service';
 
 // Aux
-import InMemoryEventBus from '../events/in-memory-event-bus';
+import InMemoryEventBus from '../adapters/events/in-memory-event-bus';
 import PasswordHasher from '../auth/password-hasher';
 import TokenService from '../auth/token-service';
 
 export interface Cradle {
     playerRepository: PlayerRepository;
-    getPlayersInteractor: GetPlayersInteractor;
-    createPlayerInteractor: CreatePlayerInteractor;
-    readPlayerInteractor: ReadPlayerInteractor;
-    updatePlayerInteractor: UpdatePlayerInteractor;
-    deletePlayerInteractor: DeletePlayerInteractor;
+    playerReadRepository: PlayerRepository;
+    getPlayersQueryHandler: GetPlayersQueryHandler;
+    createPlayerCommandHandler: CreatePlayerCommandHandler;
+    readPlayerQueryHandler: ReadPlayerQueryHandler;
+    updatePlayerCommandHandler: UpdatePlayerCommandHandler;
+    deletePlayerCommandHandler: DeletePlayerCommandHandler;
 
     tournamentRepository: TournamentRepository;
-    getTournamentsInteractor: GetTournamentsInteractor;
-    createTournamentInteractor: CreateTournamentInteractor;
-    readTournamentInteractor: ReadTournamentInteractor;
-    updateTournamentInteractor: UpdateTournamentInteractor;
-    deleteTournamentInteractor: DeleteTournamentInteractor;
+    tournamentReadRepository: TournamentRepository;
+    getTournamentsQueryHandler: GetTournamentsQueryHandler;
+    createTournamentCommandHandler: CreateTournamentCommandHandler;
+    readTournamentQueryHandler: ReadTournamentQueryHandler;
+    updateTournamentCommandHandler: UpdateTournamentCommandHandler;
+    deleteTournamentCommandHandler: DeleteTournamentCommandHandler;
 
     phaseRepository: PhaseRepository;
-    getPhasesInteractor: GetPhasesInteractor;
-    createPhaseInteractor: CreatePhaseInteractor;
-    readPhaseInteractor: ReadPhaseInteractor;
-    updatePhaseInteractor: UpdatePhaseInteractor;
-    deletePhaseInteractor: DeletePhaseInteractor;
-    generateGroupsPhaseMatchesInteractor: GenerateGroupsPhaseMatchesInteractor;
+    phaseReadRepository: PhaseRepository;
+    getPhasesQueryHandler: GetPhasesQueryHandler;
+    createPhaseCommandHandler: CreatePhaseCommandHandler;
+    readPhaseQueryHandler: ReadPhaseQueryHandler;
+    updatePhaseCommandHandler: UpdatePhaseCommandHandler;
+    deletePhaseCommandHandler: DeletePhaseCommandHandler;
+    generateGroupsPhaseMatchesCommandHandler: GenerateGroupsPhaseMatchesCommandHandler;
 
     groupRepository: GroupRepository;
-    getGroupsInteractor: GetGroupsInteractor;
-    createGroupInteractor: CreateGroupInteractor;
-    readGroupInteractor: ReadGroupInteractor;
-    updateGroupInteractor: UpdateGroupInteractor;
-    deleteGroupInteractor: DeleteGroupInteractor;
+    groupReadRepository: GroupReadRepository;
+    getGroupsQueryHandler: GetGroupsQueryHandler;
+    getTournamentGroupsQueryHandler: GetTournamentGroupsQueryHandler;
+    createGroupCommandHandler: CreateGroupCommandHandler;
+    readGroupQueryHandler: ReadGroupQueryHandler;
+    updateGroupCommandHandler: UpdateGroupCommandHandler;
+    deleteGroupCommandHandler: DeleteGroupCommandHandler;
 
     matchRepository: MatchRepository;
-    getMatchsInteractor: GetMatchsInteractor;
-    getTournamentMatchsInteractor: GetTournamentMatchsInteractor;
-    createMatchInteractor: CreateMatchInteractor;
-    readMatchInteractor: ReadMatchInteractor;
-    updateMatchInteractor: UpdateMatchInteractor;
-    deleteMatchInteractor: DeleteMatchInteractor;
+    matchReadRepository: MatchRepository;
+    getMatchsQueryHandler: GetMatchsQueryHandler;
+    getTournamentMatchesQueryHandler: GetTournamentMatchesQueryHandler;
+    createMatchCommandHandler: CreateMatchCommandHandler;
+    readMatchQueryHandler: ReadMatchQueryHandler;
+    updateMatchCommandHandler: UpdateMatchCommandHandler;
+    deleteMatchCommandHandler: DeleteMatchCommandHandler;
 
     userRepository: UserRepository;
     refreshTokenRepository: RefreshTokenRepository;
@@ -131,8 +149,13 @@ export interface Cradle {
     sendVerificationEmailOnUserRegisteredSubscriber: SendVerificationEmailOnUserRegisteredSubscriber;
 
     tournamentOwnershipService: TournamentOwnershipService;
+    tournamentReadOwnershipService: TournamentOwnershipService;
+
+    commandBus: CommandBus;
+    queryBus: QueryBus;
 
     models: Db;
+    readModels: Db;
     logger: typeof logger;
     eventBus: EventBus;
     emailSender: EmailSender;
@@ -146,41 +169,47 @@ const container: AwilixContainer<Cradle> = createContainer<Cradle>();
 // Register
 container.register({
     playerRepository: asClass(SequelizePlayerRepository).scoped(),
-    getPlayersInteractor: asClass(GetPlayersInteractor).scoped(),
-    createPlayerInteractor: asClass(CreatePlayerInteractor).scoped(),
-    readPlayerInteractor: asClass(ReadPlayerInteractor).scoped(),
-    updatePlayerInteractor: asClass(UpdatePlayerInteractor).scoped(),
-    deletePlayerInteractor: asClass(DeletePlayerInteractor).scoped(),
+    playerReadRepository: asClass(SequelizePlayerRepository).scoped().inject(() => ({ models: readModels })),
+    getPlayersQueryHandler: asClass(GetPlayersQueryHandler).scoped(),
+    createPlayerCommandHandler: asClass(CreatePlayerCommandHandler).scoped(),
+    readPlayerQueryHandler: asClass(ReadPlayerQueryHandler).scoped(),
+    updatePlayerCommandHandler: asClass(UpdatePlayerCommandHandler).scoped(),
+    deletePlayerCommandHandler: asClass(DeletePlayerCommandHandler).scoped(),
 
     tournamentRepository: asClass(SequelizeTournamentRepository).scoped(),
-    getTournamentsInteractor: asClass(GetTournamentsInteractor).scoped(),
-    createTournamentInteractor: asClass(CreateTournamentInteractor).scoped(),
-    readTournamentInteractor: asClass(ReadTournamentInteractor).scoped(),
-    updateTournamentInteractor: asClass(UpdateTournamentInteractor).scoped(),
-    deleteTournamentInteractor: asClass(DeleteTournamentInteractor).scoped(),
+    tournamentReadRepository: asClass(SequelizeTournamentRepository).scoped().inject(() => ({ models: readModels })),
+    getTournamentsQueryHandler: asClass(GetTournamentsQueryHandler).scoped(),
+    createTournamentCommandHandler: asClass(CreateTournamentCommandHandler).scoped(),
+    readTournamentQueryHandler: asClass(ReadTournamentQueryHandler).scoped(),
+    updateTournamentCommandHandler: asClass(UpdateTournamentCommandHandler).scoped(),
+    deleteTournamentCommandHandler: asClass(DeleteTournamentCommandHandler).scoped(),
 
     phaseRepository: asClass(SequelizePhaseRepository).scoped(),
-    getPhasesInteractor: asClass(GetPhasesInteractor).scoped(),
-    createPhaseInteractor: asClass(CreatePhaseInteractor).scoped(),
-    readPhaseInteractor: asClass(ReadPhaseInteractor).scoped(),
-    updatePhaseInteractor: asClass(UpdatePhaseInteractor).scoped(),
-    deletePhaseInteractor: asClass(DeletePhaseInteractor).scoped(),
-    generateGroupsPhaseMatchesInteractor: asClass(GenerateGroupsPhaseMatchesInteractor).scoped(),
+    phaseReadRepository: asClass(SequelizePhaseRepository).scoped().inject(() => ({ models: readModels })),
+    getPhasesQueryHandler: asClass(GetPhasesQueryHandler).scoped(),
+    createPhaseCommandHandler: asClass(CreatePhaseCommandHandler).scoped(),
+    readPhaseQueryHandler: asClass(ReadPhaseQueryHandler).scoped(),
+    updatePhaseCommandHandler: asClass(UpdatePhaseCommandHandler).scoped(),
+    deletePhaseCommandHandler: asClass(DeletePhaseCommandHandler).scoped(),
+    generateGroupsPhaseMatchesCommandHandler: asClass(GenerateGroupsPhaseMatchesCommandHandler).scoped(),
 
     groupRepository: asClass(SequelizeGroupRepository).scoped(),
-    getGroupsInteractor: asClass(GetGroupsInteractor).scoped(),
-    createGroupInteractor: asClass(CreateGroupInteractor).scoped(),
-    readGroupInteractor: asClass(ReadGroupInteractor).scoped(),
-    updateGroupInteractor: asClass(UpdateGroupInteractor).scoped(),
-    deleteGroupInteractor: asClass(DeleteGroupInteractor).scoped(),
+    groupReadRepository: asClass(SequelizeGroupRepository).scoped().inject(() => ({ models: readModels })),
+    getGroupsQueryHandler: asClass(GetGroupsQueryHandler).scoped(),
+    getTournamentGroupsQueryHandler: asClass(GetTournamentGroupsQueryHandler).scoped(),
+    createGroupCommandHandler: asClass(CreateGroupCommandHandler).scoped(),
+    readGroupQueryHandler: asClass(ReadGroupQueryHandler).scoped(),
+    updateGroupCommandHandler: asClass(UpdateGroupCommandHandler).scoped(),
+    deleteGroupCommandHandler: asClass(DeleteGroupCommandHandler).scoped(),
 
     matchRepository: asClass(SequelizeMatchRepository).scoped(),
-    getMatchsInteractor: asClass(GetMatchsInteractor).scoped(),
-    getTournamentMatchsInteractor: asClass(GetTournamentMatchsInteractor).scoped(),
-    createMatchInteractor: asClass(CreateMatchInteractor).scoped(),
-    readMatchInteractor: asClass(ReadMatchInteractor).scoped(),
-    updateMatchInteractor: asClass(UpdateMatchInteractor).scoped(),
-    deleteMatchInteractor: asClass(DeleteMatchInteractor).scoped(),
+    matchReadRepository: asClass(SequelizeMatchRepository).scoped().inject(() => ({ models: readModels })),
+    getMatchsQueryHandler: asClass(GetMatchsQueryHandler).scoped(),
+    getTournamentMatchesQueryHandler: asClass(GetTournamentMatchesQueryHandler).scoped(),
+    createMatchCommandHandler: asClass(CreateMatchCommandHandler).scoped(),
+    readMatchQueryHandler: asClass(ReadMatchQueryHandler).scoped(),
+    updateMatchCommandHandler: asClass(UpdateMatchCommandHandler).scoped(),
+    deleteMatchCommandHandler: asClass(DeleteMatchCommandHandler).scoped(),
 
     userRepository: asClass(SequelizeUserRepository).scoped(),
     refreshTokenRepository: asClass(SequelizeRefreshTokenRepository).scoped(),
@@ -196,15 +225,30 @@ container.register({
     // singleton would pin it to whichever request's repository instances resolved it first.
     tournamentOwnershipService: asClass(TournamentOwnershipService).scoped(),
 
+    // Same service, wired to the four read repositories instead — used by query handlers
+    // so an ownership check made while reading never falls back to the write connection.
+    tournamentReadOwnershipService: asClass(TournamentOwnershipService).scoped().inject(() => ({
+        tournamentRepository: container.cradle.tournamentReadRepository,
+        groupRepository: container.cradle.groupReadRepository,
+        phaseRepository: container.cradle.phaseReadRepository,
+        matchRepository: container.cradle.matchReadRepository,
+    })),
+
+    // Controllers resolve these instead of individual handler tokens, so a handler
+    // can be added/renamed/split without touching every controller that dispatches it.
+    commandBus: asClass(CommandBus).scoped(),
+    queryBus: asClass(QueryBus).scoped(),
+
     models: asValue(models),
+    readModels: asValue(readModels),
     logger: asValue(logger),
 
-    // In-memory now; swapped for KafkaEventBus behind the same EventBus interface in Phase 5.
+    // In-memory now; swapped for a durable broker behind the same EventBus interface later.
     // Singleton so a subscription registered once at startup keeps receiving events
     // published from any request — a per-request (.scoped()) instance would lose them.
     eventBus: asClass(InMemoryEventBus).singleton(),
 
-    // Console-only stand-in for a real mail provider (SES, in Phase 10) — see 3.5.
+    // Console-only stand-in for a real mail provider — logs instead of sending.
     emailSender: asClass(ConsoleEmailSender).singleton(),
 
     // Subscribes to UserRegistered exactly once at startup (app.ts calls .subscribe()

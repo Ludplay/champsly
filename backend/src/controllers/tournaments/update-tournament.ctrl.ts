@@ -1,10 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
-const UpdateTournamentController = async (req: Request, res: Response, next: NextFunction) => {
-    const updateTournamentInteractor = req.container.resolve('updateTournamentInteractor');
-    const { id } = req.params;
-    const body = req.body;
+import { UpdateTournamentCommand } from '../../application/commands/update-tournament.command';
 
-    const response = await updateTournamentInteractor.execute(Number(id), body, req.user!.id);
+const UpdateTournamentController = async (req: Request, res: Response, next: NextFunction) => {
+    const commandBus = req.container.resolve('commandBus');
+    const { id } = req.params;
+
+    const input = { id: Number(id), changes: req.body, userId: req.user!.id };
+    const command = new UpdateTournamentCommand(input);
+
+    const response = await commandBus.execute(command);
 
     return res.status(200).json(response);
 

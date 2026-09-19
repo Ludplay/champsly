@@ -4,6 +4,9 @@
 
 ---
 
+## Basic Code Instructions
+IMPORTANT: Read backend/prompts/instructions.md for basic and necessary code instructions (REQUIRED).
+
 ## 1. Current State Audit
 
 ### What to Keep
@@ -46,8 +49,8 @@ Application Layer   → Command Handlers (writes) / Query Handlers (reads) [CQRS
 Shared              → Value Objects (src/shared/value-objects/)
                       Domain Events base + named events (src/shared/events/)
                       Custom error classes (src/shared/errors/)
-Infrastructure      → Repository implementations (Sequelize, src/infra/db/repositories/)
-                      Event Bus — in-memory → Kafka (src/infra/events/)
+Infrastructure      → Repository implementations (Sequelize, src/infra/adapters/repositories/)
+                      Event Bus — in-memory → Kafka (src/infra/adapters/events/; subscribers in src/infra/events/subscribers/)
                       AWS adapters (LocalStack: SQS/SNS/S3)
                       Observability (OTEL + Sentry + Pino + Prometheus)
 Platform            → Docker Compose → Kubernetes manifests
@@ -195,7 +198,7 @@ No `src/domain/` folder. No bounded contexts. No aggregate roots or repository p
 
 - [✅] **2.3 Move stats computation out of GroupRepository**
   - `GroupRepository.getTournamentGroups()` should return raw group + player data only.
-  - Create `src/shared/services/GroupStandingsService.ts` — a plain function that receives groups and matches and computes wins/points.
+  - Create `src/shared/services/group-standings.service.ts` — a plain function that receives groups and matches and computes wins/points.
   - Call it from `GetGroupsInteractor` (or from the query handler when Phase 4 arrives).
   - *Why? Because* a repository's only job is to persist and retrieve data. Computing standings encodes tournament rules — what counts as a win, how points accumulate. When that logic lives inside the repository it is untestable without a DB connection and invisible to any interactor that might need the same calculation. Extracting it to a service makes it a pure function: in goes data, out comes standings.
 
@@ -209,7 +212,7 @@ No `src/domain/` folder. No bounded contexts. No aggregate roots or repository p
 - [✅] **2.5 Domain Events infrastructure (in-memory)**
   - Create `src/shared/events/` with a base `DomainEvent` class (fields: `eventId`, `occurredOn`, `aggregateId`).
   - Initial named events: `TournamentCreated`, `MatchResultRecorded`, `PhaseCompleted`.
-  - Create `src/infra/events/InMemoryEventBus.ts` — simple pub/sub; registered in Awilix as `eventBus`.
+  - Create `src/infra/events/in-memory-event-bus.ts` — simple pub/sub; registered in Awilix as `eventBus`.
   - Interactors collect events during execution and dispatch them to the bus after the repository write succeeds.
   - *Why? Because* side effects are currently hardwired as direct method calls inside interactors — every new side effect requires modifying the same class. An event bus inverts this: the interactor announces what happened, and independent subscribers react. This is also the groundwork for Phase 5: swapping `InMemoryEventBus` for `KafkaEventBus` without touching a single interactor.
 
@@ -251,7 +254,7 @@ The mechanism is a **bearer JWT access token + rotating refresh token**, not ser
 
 - [✅] **3.5 Email verification**
   - A subscriber (`src/infra/events/subscribers/send-verification-email-on-user-registered.ts`) listens for `UserRegistered` and calls an `EmailSender` port with the verification link/code.
-  - `src/shared/mail/email-sender.types.ts` defines the `EmailSender` port; `src/infra/mail/ConsoleEmailSender.ts` is the only implementation for now — it logs the link via Pino instead of sending real mail.
+  - `src/shared/mail/email-sender.types.ts` defines the `EmailSender` port; `src/infra/adapters/mail/console-email-sender.ts` is the only implementation for now — it logs the link via Pino instead of sending real mail. (Relocated from `src/infra/mail/` in 4.1, alongside the repository implementations, once `infra/adapters/` became the home for anything implementing a `shared/`-owned port.)
   - `POST /api/v1/auth/verify-email` — consumes the token, flips the matching user's `status` to `verified`. Tokens are single-use and expire (e.g. 24h); an expired/used token returns a clear, re-requestable error.
   - *Why? Because* this is the same swap-the-infrastructure-not-the-domain-logic pattern already used for the event bus (in-memory now, Kafka in Phase 5) and for LocalStack vs. real AWS (Phase 8 vs. Phase 10): building against a port means the eventual move to a real mail provider (SES, in Phase 10) touches one new adapter file, not the registration flow itself.
 
@@ -308,39 +311,60 @@ The mechanism is a **bearer JWT access token + rotating refresh token**, not ser
 
 **Steps:**
 
-- [ ] **4.1 Split repository interfaces for read/write (builds on 1.12)**
+- [✅] **4.1 Split repository interfaces for read/write (builds on 1.12)**
   - The repository ports already exist as of Phase 1.12 (`*.types.ts` per resource under `src/shared/repositories/`) — this step is no longer about creating interfaces from scratch.
-  - Where a query handler's read shape genuinely diverges from the write repository (e.g., a read method needs a joined DTO instead of a raw entity), extend the resource's `*.types.ts` with a second, narrower interface (e.g., `PlayerReadRepository`) rather than widening the original port.
-  - Move Sequelize implementations from `src/adapters/repositories/` to `src/infra/db/repositories/`, keeping each `implements` clause intact.
+  - Where a query handler's read shape genuinely diverges from the write repository (e.g., a read method needs a joined DTO instead of a raw entity), extend the resource's `*.types.ts` with a second, narrower interface (e.g., `PlayerReadRepository`) rather than widening the original port. Audited all 8 resources: only `Group` qualifies — `getTournamentGroups()` returns `GroupWithPlayers`, a joined DTO, unlike every other resource whose methods all still return their plain entity. Added `GroupReadRepository` (additive, in `group.types.ts`) with the 4 read methods; `GroupRepository` and every other resource's port are untouched.
+  - Move Sequelize implementations from `src/adapters/repositories/` to `src/infra/adapters/repositories/`, keeping each `implements` clause intact. `src/adapters/` was the only concrete-implementation folder living outside `src/infra/` — everything else technology-specific (config, db, auth, events, http, mail) was already there. `adapters` is kept as the explicit name for the role (classes implementing a `shared/`-owned port — Cockburn's driven/secondary adapters, Uncle Bob's "Interface Adapters" gateways), nested under `infra` as the layer that houses it, rather than picking one term over the other. Applied consistently: `ConsoleEmailSender` (3.5) and `InMemoryEventBus` (2.5) — both also port implementations — move too, to `src/infra/adapters/mail/` and `src/infra/adapters/events/` respectively; the event *subscribers* stay at `src/infra/events/subscribers/` since they consume the bus rather than implement a port.
   - Register in Awilix under the same tokens — no changes needed in handlers.
   - *Why? Because* now that ports are compiler-enforced from Phase 1.12, CQRS doesn't need to invent interfaces — it only needs to decide, per method, whether the read path requires a shape the write interface doesn't already provide. Keeping one interface per resource unless reads truly diverge avoids splitting for its own sake.
 
-- [ ] **4.2 Commands and Command Handlers**
-  - Create `src/application/commands/` — one file per command, e.g., `CreateTournamentCommand.ts` (a plain data class).
+- [✅] **4.2 Commands and Command Handlers**
+  - Create `src/application/commands/` — one file per command, e.g., `create-tournament.command.ts` (a plain data class).
   - Rename current write interactors to `*CommandHandler` under `src/application/commands/handlers/`.
   - Command handlers: receive a command object, execute domain logic, persist, dispatch events.
+  - Result: 
+  -- Scoped to the 16 tournament-domain write interactors (Tournament/Phase/Group/Match/Player create/update/delete, plus `GenerateGroupsPhaseMatches`). Auth's 6 write interactors (register/login/refresh/logout/verify-email/resend-verification) are deliberately left as plain interactors — Phase 3's own preamble already frames auth as its own bounded concern, not a domain refinement, and none of CQRS's actual payoffs (caching reads, scaling reads, a differently-shaped read model) apply to a login/logout flow.
+  -- Controllers now construct the Command (still resolving each handler by its own Awilix token — the `CommandBus` indirection is 4.5's job, not this one) and call `.execute(command)`; the DI token for each renamed handler follows the class name (e.g. `createTournamentInteractor` → `createTournamentCommandHandler`).
+  -- Extra: Found and removed one dead dependency while moving `GenerateGroupsPhaseMatchesCommandHandler`: it injected `createMatchInteractor` but never called it (match rows were always created via `matchRepository.createMany()` directly).
   - *Why? Because* mixing read and write intent inside a single "interactor" class makes the code harder to reason about, harder to optimize, and harder to evolve independently. A command is an explicit, named declaration of intent to change state — it makes the "what is this code supposed to do" question answerable at a glance.
 
-- [ ] **4.3 Queries and Query Handlers**
-  - Create `src/application/queries/` — one file per query, e.g., `GetTournamentMatchesQuery.ts`.
+- [✅] **4.3 Queries and Query Handlers**
+  - Create `src/application/queries/` — one file per query, e.g., `get-tournament-matches.query.ts`.
   - Query handlers live in `src/application/queries/handlers/` — they read directly from the DB via read-optimized repository methods and return DTOs.
   - Query handlers must **never** mutate state.
+  - Result:
+  -- All 11 remaining read interactors converted (`GetGroupsInteractor`'s two methods became two separate handlers: `GetGroupsQueryHandler` and `GetTournamentGroupsQueryHandler`, since they serve two different routes). `GetGroupsQueryHandler`/`GetTournamentGroupsQueryHandler`/`ReadGroupQueryHandler` depend on `GroupReadRepository` (the narrower read-only port) rather than the full `GroupRepository` — the interface finally has a real consumer. `src/interactors/` now holds only the 6 auth interactors; every tournament-domain interactor is gone.
+  -- Found and fixed a real, if dormant, inconsistency while converting `ReadPhaseInteractor`: it never populated the `tournament` name field that the list endpoint (`GetPhasesInteractor`) already did, even though the frontend's `Phase` type declares that field required. It hadn't caused a visible bug because nothing in the frontend actually calls single-phase read. Added `getOneWithTournament` to `PhaseRepository` (same `Tournament` include `getTournamentPhases` already uses) so `ReadPhaseQueryHandler` now matches the list shape.
   - *Why? Because* reads have fundamentally different requirements than writes: they need to be fast, can be safely cached, can hit read replicas, and must never produce side effects. Separating them makes those constraints enforceable at the code level — a query handler that calls a command handler is a compile-time (or lint-time) violation, not a runtime surprise.
 
-- [ ] **4.4 Read models / DTOs**
+- [✅] **4.4 Read models / DTOs**
   - Create `src/application/dtos/` — plain output shapes (e.g., `TournamentSummaryDTO`, `MatchWithPlayersDTO`).
   - Query handlers map Sequelize rows to DTOs; controllers only receive DTOs.
+  - Result: 
+  -- 7 DTOs added: `PlayerDTO`, `TournamentDTO`, `PhaseDTO`, `MatchDTO` (each `InferAttributes<Model>`-based, matching the existing `GroupWithPlayers` convention), `GroupDTO`/`GroupStandingsDTO` (re-exports of the already-existing `GroupWithPlayers`/`GroupWithStats` types rather than duplicates), and `TournamentMatchesDTO` (formalizing the inline `{phases:[...]}` shape `GetTournamentMatchesQueryHandler` already built by hand). Chosen deliberately as a 1:1 formalization of the current response shapes, not a trim to only what the frontend's TS types declare — zero wire-format change, still gets the real benefit (a named contract that won't silently grow when the schema does), without a breaking change nothing asked for.
   - *Why? Because* controllers currently return raw Sequelize model instances, which serialize every column (including internal ones), leak database column names into the API contract, and make it impossible to reshape a response without touching the model. A DTO owns the output contract — it changes when the API spec changes, independently of how data is stored.
 
-- [ ] **4.5 Wire CQRS into controllers**
+- [✅] **4.5 Wire CQRS into controllers**
   - Controllers resolve a `CommandBus` or `QueryBus` (simple dispatcher registered in Awilix) rather than specific interactors.
   - This decouples controllers from handler implementations.
+  - Result:
+  -- Added `src/application/bus/command-bus.ts` and `src/application/bus/query-bus.ts`. Each maintains an internal `Map` from command/query constructor to its handler, built once in the constructor from handlers injected by Awilix; `execute()` looks up the handler by `command.constructor`/`query.constructor` and throws a plain `Error` (a misconfiguration, not a request-shape problem, so it isn't one of the typed `AppError` subclasses) if none is registered.
+  -- Registered both as `.scoped()` in `register.ts`, alongside the existing handler registrations (which stay — the bus still resolves handlers by their Awilix token internally).
+  -- All 29 tournament-domain controllers (Tournament/Phase/Group/Match/Player × create/update/read/delete/list, plus `GenerateGroupsPhaseMatches` and the v1/v2 players list) now resolve `commandBus`/`queryBus` and call `.execute(command)`/`.execute(query)` instead of resolving a named handler token directly. Auth's 6 controllers are untouched, consistent with 4.2's decision to keep auth outside the command/query split.
+  -- `GetPlayersV2Controller` needed one adjustment beyond the mechanical swap: it reads `.length` off the query result to build the pagination `meta`, so it passes `queryBus.execute<PlayerDTO[]>(query)` — the only call site that needed an explicit generic instead of relying on the bus's `unknown` default, since every other controller only forwards the result into `res.json(...)` without touching it.
   - *Why? Because* if controllers resolve handlers by their exact registered name, adding, renaming, or splitting a handler requires editing both the handler file and every controller that references it. A bus acts as an indirection layer — the controller says "dispatch this command," and the bus decides which handler runs.
 
-- [ ] **4.6 Separate read DB connection (optional, advanced)**
+- [✅] **4.6 Separate read DB connection (optional, advanced)**
   - Configure a second Sequelize instance pointing to a read replica (or the same DB for now).
   - Query handlers use the read instance; command handlers use the write instance.
   - This is a prep step for eventual consistency patterns.
+  - Result:
+  -- Added `src/infra/config/config-sequelize-read.ts`, same `EnvConfig` shape as `config-sequelize.ts` but sourced from `DB_READ_HOST`/`DB_READ_PORT`/`DB_READ_USERNAME`/`DB_READ_PASSWORD`, each falling back to its `DB_*` counterpart when unset. Today all four point at the same `champsly-db` credentials; a real replica typically shares credentials too (streaming replication copies the whole cluster, roles included), but the separate username/password vars exist so a least-privilege, read-only DB role can be swapped in later without a code change — the same "just change a connection string" property the host/port split already has, applied to credentials. `config-sequelize.ts` itself is untouched — Sequelize CLI still reads only that file for migrations.
+  -- `src/infra/db/models/index.ts` now builds two `Sequelize` connections (`db`, `readDb`) through a shared `buildDb()` factory instead of one, and exports both.
+  -- Registered a second Awilix token per tournament-domain resource (`tournamentReadRepository`, `phaseReadRepository`, `groupReadRepository`, `matchReadRepository`, `playerReadRepository`) — the same repository class as the write token, `.inject()`-ed with `readModels` in place of `models`. `GroupReadRepository` (4.1's narrower read-only port) now has a second implementation living on its own connection, not just a narrower type reusing the write one.
+  -- `TournamentOwnershipService` got a read-bound twin, `tournamentReadOwnershipService`. The ownership check several query handlers call (`read-tournament`, `read-group`, `read-phase`, `read-match`, `get-tournament-groups`, `get-tournament-matches`) is itself a read, so leaving it on the write-bound service would have quietly defeated this step for exactly those handlers.
+  -- All 12 query handlers now depend on the `*Read*`-suffixed tokens; the 16 command handlers are untouched and still resolve the original write-bound tokens. Auth's repositories (`userRepository`, `refreshTokenRepository`, `emailVerificationTokenRepository`) stay write-only — consistent with 4.2/4.3 keeping auth outside CQRS.
+  -- Verified against the running Docker container, not just `tsc`: registration (write) and `GET /api/v1/get-tournaments` (read, through `tournamentReadRepository`) both round-tripped correctly against the real DB, with no Awilix resolution errors in the logs.
   - *Why? Because* even on the same database server today, pointing reads at a dedicated connection pool prepares the code to route queries to a read replica with zero application changes later. This is how you scale reads horizontally — not by rewriting business logic, but by changing a connection string.
 
 ---
@@ -357,7 +381,7 @@ The mechanism is a **bearer JWT access token + rotating refresh token**, not ser
 
 - [ ] **5.2 KafkaEventBus**
   - Install `kafkajs`.
-  - Create `src/infra/events/KafkaEventBus.ts` implementing the same interface as `InMemoryEventBus`.
+  - Create `src/infra/events/kafka-event-bus.ts` implementing the same interface as `InMemoryEventBus`.
   - Register conditionally: use Kafka in `production`/`development`, in-memory in `test`.
   - Topics map 1:1 to domain events: `tournament.created`, `match.result-recorded`, `phase.completed`, `user.registered`.
   - *Why? Because* the in-memory event bus from Phase 2 is lost on process restart — it has no durability, no replay capability, and no fan-out to other services. Kafka provides a durable, ordered, replayable log that survives restarts and can deliver the same event to multiple independent consumer groups simultaneously.
@@ -642,7 +666,7 @@ This phase is placed last by explicit product decision, not because it is archit
 
 - [ ] **12.2 Backend — localize transactional emails**
   - Extend the `EmailSender` port (3.5) so the subscriber passes the recipient's `locale` (12.1) alongside the existing verification link.
-  - Template selection under `src/infra/mail/templates/<lang>/verification-email.ts` (`en`, `pt`); `ConsoleEmailSender` renders whichever template matches the locale, falling back to `en`.
+  - Template selection under `src/infra/adapters/mail/templates/<lang>/verification-email.ts` (`en`, `pt`); `ConsoleEmailSender` renders whichever template matches the locale, falling back to `en`.
   - *Why? Because* this is the same swap-the-adapter-not-the-domain-logic pattern already used for the event bus and mail sender in 2.5/3.5 — the subscriber's job (react to `UserRegistered`) doesn't change, only which template the port renders.
 
 - [ ] **12.3 Frontend — i18n infrastructure**

@@ -1,10 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-const CreatePlayerController = async (req: Request, res: Response, next: NextFunction) => {
-    const createPlayerInteractor = req.container.resolve('createPlayerInteractor');
+import { CreatePlayerCommand } from '../../application/commands/create-player.command';
 
-    const body = req.body;
-    
-    const response = await createPlayerInteractor.execute(body);
+const CreatePlayerController = async (req: Request, res: Response, next: NextFunction) => {
+    const commandBus = req.container.resolve('commandBus');
+
+    const input = req.body;
+    const command = new CreatePlayerCommand(input);
+
+    const response = await commandBus.execute(command);
 
     return res.status(200)
         .json(response);

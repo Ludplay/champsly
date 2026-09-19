@@ -1,9 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
+import { DeletePlayerCommand } from '../../application/commands/delete-player.command';
+
 const DeletePlayerController = async (req: Request, res: Response, next: NextFunction) => {
-    const deletePlayerInteractor = req.container.resolve('deletePlayerInteractor');
+    const commandBus = req.container.resolve('commandBus');
     const { id } = req.params;
 
-    const deleted = await deletePlayerInteractor.execute(Number(id));
+    const input = { id: Number(id) };
+    const command = new DeletePlayerCommand(input);
+
+    const deleted = await commandBus.execute(command);
 
     return res.status(200).json({ deleted });
 

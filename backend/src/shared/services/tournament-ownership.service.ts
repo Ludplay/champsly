@@ -1,5 +1,5 @@
 import type { TournamentRepository } from '../repositories/tournament.types';
-import type { GroupRepository } from '../repositories/group.types';
+import type { GroupReadRepository } from '../repositories/group.types';
 import type { PhaseRepository } from '../repositories/phase.types';
 import type { MatchRepository } from '../repositories/match.types';
 import { Tournament } from '../../infra/db/models/tournament';
@@ -14,13 +14,13 @@ import { NotFoundError, ForbiddenError } from '../errors';
  */
 class TournamentOwnershipService {
     private tournamentRepository: TournamentRepository;
-    private groupRepository: GroupRepository;
+    private groupRepository: GroupReadRepository;
     private phaseRepository: PhaseRepository;
     private matchRepository: MatchRepository;
 
     constructor(params: {
         tournamentRepository: TournamentRepository;
-        groupRepository: GroupRepository;
+        groupRepository: GroupReadRepository;
         phaseRepository: PhaseRepository;
         matchRepository: MatchRepository;
     }) {

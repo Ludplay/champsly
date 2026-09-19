@@ -1,8 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
-const GetPlayersV2Controller = async (req: Request, res: Response, next: NextFunction) => {
-    const getPlayersInteractor = req.container.resolve('getPlayersInteractor');
+import { GetPlayersQuery } from '../../application/queries/get-players.query';
+import type { PlayerDTO } from '../../application/dtos/player.dto';
 
-    const players = await getPlayersInteractor.execute();
+const GetPlayersV2Controller = async (req: Request, res: Response, next: NextFunction) => {
+    const queryBus = req.container.resolve('queryBus');
+
+    const query = new GetPlayersQuery();
+    const players = await queryBus.execute<PlayerDTO[]>(query);
 
     return res.status(200)
         .json({

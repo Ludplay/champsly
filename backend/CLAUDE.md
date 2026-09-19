@@ -44,7 +44,7 @@ Request → Controller → Interactor (business logic) → Repository → Sequel
 **Layer conventions:**
 - `src/controllers/**/*.ctrl.js` — thin HTTP handlers; resolve interactors from `req.container`
 - `src/interactors/**/*.bs.js` — all business logic; receive dependencies via constructor (`params`)
-- `src/adapters/repositories/**/*.rep.js` — data access; wrap Sequelize models
+- `src/infra/adapters/repositories/**/*.rep.ts` — data access; wrap Sequelize models
 - `src/infra/db/models/` — Sequelize model definitions with associations
 - `src/infra/db/migrations/` — Sequelize CLI migrations
 

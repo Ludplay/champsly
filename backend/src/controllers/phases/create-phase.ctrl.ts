@@ -1,10 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-const CreatePhaseController = async (req: Request, res: Response, next: NextFunction) => {
-    const createPhaseInteractor = req.container.resolve('createPhaseInteractor');
+import { CreatePhaseCommand } from '../../application/commands/create-phase.command';
 
-    const body = req.body;
-    
-    const response = await createPhaseInteractor.execute(body, req.user!.id);
+const CreatePhaseController = async (req: Request, res: Response, next: NextFunction) => {
+    const commandBus = req.container.resolve('commandBus');
+
+    const input = { ...req.body, userId: req.user!.id };
+    const command = new CreatePhaseCommand(input);
+
+    const response = await commandBus.execute(command);
 
     return res.status(200).json(response);
 

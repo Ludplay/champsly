@@ -1,9 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
+import { ReadGroupQuery } from '../../application/queries/read-group.query';
+
 const ReadGroupController = async (req: Request, res: Response, next: NextFunction) => {
-    const readGroupInteractor = req.container.resolve('readGroupInteractor');
+    const queryBus = req.container.resolve('queryBus');
     const { id } = req.params;
 
-    const response = await readGroupInteractor.execute(Number(id), req.user!.id);
+    const input = { id: Number(id), userId: req.user!.id };
+    const query = new ReadGroupQuery(input);
+
+    const response = await queryBus.execute(query);
 
     return res.status(200).json(response);
 

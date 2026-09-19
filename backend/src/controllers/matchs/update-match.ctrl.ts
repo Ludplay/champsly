@@ -1,10 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
-const UpdateMatchController = async (req: Request, res: Response, next: NextFunction) => {
-    const updateMatchInteractor = req.container.resolve('updateMatchInteractor');
-    const { id } = req.params;
-    const body = req.body;
+import { UpdateMatchCommand } from '../../application/commands/update-match.command';
 
-    const response = await updateMatchInteractor.execute(Number(id), body, req.user!.id);
+const UpdateMatchController = async (req: Request, res: Response, next: NextFunction) => {
+    const commandBus = req.container.resolve('commandBus');
+    const { id } = req.params;
+
+    const input = { id: Number(id), changes: req.body, userId: req.user!.id };
+    const command = new UpdateMatchCommand(input);
+
+    const response = await commandBus.execute(command);
 
     return res.status(200).json(response);
 

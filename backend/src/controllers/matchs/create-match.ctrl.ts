@@ -1,10 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-const CreateMatchController = async (req: Request, res: Response, next: NextFunction) => {
-    const createMatchInteractor = req.container.resolve('createMatchInteractor');
+import { CreateMatchCommand } from '../../application/commands/create-match.command';
 
-    const body = req.body;
-    
-    const response = await createMatchInteractor.execute(body, req.user!.id);
+const CreateMatchController = async (req: Request, res: Response, next: NextFunction) => {
+    const commandBus = req.container.resolve('commandBus');
+
+    const input = { ...req.body, userId: req.user!.id };
+    const command = new CreateMatchCommand(input);
+
+    const response = await commandBus.execute(command);
 
     return res.status(200).json(response);
 

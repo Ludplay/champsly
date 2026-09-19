@@ -1,9 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
+import { ReadMatchQuery } from '../../application/queries/read-match.query';
+
 const ReadMatchController = async (req: Request, res: Response, next: NextFunction) => {
-    const readMatchInteractor = req.container.resolve('readMatchInteractor');
+    const queryBus = req.container.resolve('queryBus');
     const { id } = req.params;
 
-    const response = await readMatchInteractor.execute(Number(id), req.user!.id);
+    const input = { id: Number(id), userId: req.user!.id };
+    const query = new ReadMatchQuery(input);
+
+    const response = await queryBus.execute(query);
 
     return res.status(200).json(response);
 

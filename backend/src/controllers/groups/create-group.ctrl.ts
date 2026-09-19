@@ -1,10 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-const CreateGroupController = async (req: Request, res: Response, next: NextFunction) => {
-    const createGroupInteractor = req.container.resolve('createGroupInteractor');
+import { CreateGroupCommand } from '../../application/commands/create-group.command';
 
-    const body = req.body;
-    
-    const response = await createGroupInteractor.execute(body, req.user!.id);
+const CreateGroupController = async (req: Request, res: Response, next: NextFunction) => {
+    const commandBus = req.container.resolve('commandBus');
+
+    const input = { ...req.body, userId: req.user!.id };
+    const command = new CreateGroupCommand(input);
+
+    const response = await commandBus.execute(command);
 
     return res.status(200).json(response);
 

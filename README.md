@@ -64,21 +64,22 @@ A three-layer clean architecture wired together with constructor injection (Awil
 
 See `backend/CLAUDE.md` for the full layer/naming conventions and `frontend/CLAUDE.md` for the frontend's feature-slice structure.
 
-### System design
+### Architecture snapshot
 
-![Champsly architecture diagram — Phase 3 complete](system_design/v3.png)
+![Champsly architecture diagram — Phase 4 complete](architecture_diagrams/v4.png)
 
-A snapshot as of Phase 3 completion: solid boxes are implemented and wired, including the new identity & session layer added in Phase 3 — password hashing and JWT/refresh-token infrastructure, the `users`/`refresh_tokens`/`email_verification_tokens` tables, the `authenticate.middleware.ts` + `TournamentOwnershipService` auth gate, and the frontend's `AuthContext` and `api-client` refresh-and-retry interceptor. Kafka/Zookeeper still aren't consumed — that lands in Phase 5. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each remaining piece lands as later phases land, or the [Phase 2](system_design/v2.png) / [Phase 1](system_design/v1.png) diagrams for earlier snapshots.
+A snapshot as of Phase 4 completion: solid boxes are implemented and wired, including the new CQRS application layer added in Phase 4 — controllers now dispatch through a `CommandBus`/`QueryBus` to 16 command handlers (writes) and 12 query handlers (reads), query handlers return DTOs instead of raw Sequelize rows, and reads go through a separate `readModels` Sequelize connection (`*ReadRepository`, `tournamentReadOwnershipService`) that points at the same database today but can be repointed at a real read replica later without touching a handler. Kafka/Zookeeper still aren't consumed — that lands in Phase 5. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each remaining piece lands as later phases land, or the [Phase 3](architecture_diagrams/v3.png) / [Phase 2](architecture_diagrams/v2.png) / [Phase 1](architecture_diagrams/v1.png) diagrams for earlier snapshots.
 
 ## Project status
 
-Phases 1 through 3 of the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) are complete:
+Phases 1 through 4 of the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) are complete:
 
 - **Phase 1 — Foundation Hardening:** environment config, global error handling, request validation, structured logging, API versioning, rate limiting, Docker Compose, a full TypeScript migration, and repository interfaces enforcing dependency inversion.
 - **Phase 2 — Entities & Value Objects (DDD-lite):** type-safe value objects (`TournamentStatus`, `MatchStatus`, `Score`, `PhaseType`), entity behavior moved onto the models (`Tournament.canStart/canFinish`, `Match.recordResult`, `Group.canAddPlayer`), standings computation extracted out of the repository into a pure service, `CreateTournamentInteractor` decoupled from other interactors, and an in-memory domain event bus (`TournamentCreated`, `MatchResultRecorded`, `PhaseCompleted`).
 - **Phase 3 — Authentication & Login:** bcrypt password hashing, short-lived JWT access tokens with rotating opaque refresh tokens (reuse of a rotated-away token triggers theft detection, killing the whole session chain), email verification with a resend flow, `authenticate.middleware.ts` and `TournamentOwnershipService` scoping every tournament/group/phase/match to its owner, per-route rate limiting plus Helmet/CSP, and the matching frontend: `AuthContext`, a shared `api-client` with a 401→refresh→retry interceptor, register/login/verify-email screens, and protected routes.
+- **Phase 4 — CQRS:** write interactors renamed to command handlers (16) and read interactors to query handlers (12), each dispatched through a `CommandBus`/`QueryBus` instead of controllers resolving them by name, query handlers returning DTOs (`src/application/dtos/`) instead of raw Sequelize rows, and a second `readModels` Sequelize connection with its own `*ReadRepository` set and read-bound `TournamentOwnershipService` — pointed at the same database today, repointable to a real read replica later via env vars alone.
 
-Phase 4 (CQRS) onward — Kafka event-driven architecture, observability, testing, AWS deployment, Kubernetes — is planned but not yet started; see the plan for the full roadmap and the reasoning behind each step.
+Phase 5 (Kafka event-driven architecture) onward — observability, testing, AWS deployment, Kubernetes — is planned but not yet started; see the plan for the full roadmap and the reasoning behind each step.
 
 ## License
 

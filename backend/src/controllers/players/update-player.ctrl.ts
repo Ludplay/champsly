@@ -1,10 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
-const UpdatePlayerController = async (req: Request, res: Response, next: NextFunction) => {
-    const updatePlayerInteractor = req.container.resolve('updatePlayerInteractor');
-    const { id } = req.params;
-    const body = req.body;
+import { UpdatePlayerCommand } from '../../application/commands/update-player.command';
 
-    const response = await updatePlayerInteractor.execute(Number(id), body);
+const UpdatePlayerController = async (req: Request, res: Response, next: NextFunction) => {
+    const commandBus = req.container.resolve('commandBus');
+    const { id } = req.params;
+
+    const input = { id: Number(id), changes: req.body };
+    const command = new UpdatePlayerCommand(input);
+
+    const response = await commandBus.execute(command);
 
     return res.status(200).json(response);
 

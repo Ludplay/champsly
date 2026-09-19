@@ -27,3 +27,11 @@ export interface GroupRepository {
     delete(id: number): Promise<number>;
     addPlayerInGroup(playerId: number, groupId: number): Promise<[number, number]>;
 }
+
+// Additive read-only subset (4.1) (architecture-evolution.md)
+export interface GroupReadRepository {
+    getAll(): Promise<Group[]>;
+    getAllByUser(userId: number): Promise<Group[]>;
+    getOne(id: number): Promise<Group | null>;
+    getTournamentGroups(tournamentId: number): Promise<GroupWithPlayers[]>;
+}
