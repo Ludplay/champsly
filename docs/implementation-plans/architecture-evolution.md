@@ -584,6 +584,7 @@ The mechanism is a **bearer JWT access token + rotating refresh token**, not ser
 - [ ] **10.5 Database — RDS PostgreSQL**
   - Provision `db.t4g.micro`/`db.t3.micro`, single-AZ (Multi-AZ deliberately skipped — see 11.2), 7-day automated backups, security group scoped to only the EC2 instance's security group.
   - Point `config-sequelize.js` at the RDS endpoint via env vars.
+  - `DB_READ_HOST`/`DB_READ_PORT`/`DB_READ_USERNAME`/`DB_READ_PASSWORD` (4.6) are deliberately left unset here, so they fall back to this same instance — there is only one RDS instance in Phase 10, so the `readModels` connection has nothing else to point at yet. This is a documented skip, not an oversight: a second always-on instance roughly doubles DB spend for a deployment with effectively no read load, the same cost/benefit call already made for the NAT Gateway (10.3) and the ALB (10.6). Whether to actually stand one up is decided and measured in 11.8, not assumed here.
   - *Why? Because* self-managing Postgres — patching, backup scripts, failover — is real operational work that RDS removes for a few dollars a month. This is the managed-database value proposition felt directly, instead of read about.
 
 - [ ] **10.6 Public entry point + rate limiting — API Gateway (HTTP API), not ALB**
@@ -649,6 +650,14 @@ The mechanism is a **bearer JWT access token + rotating refresh token**, not ser
   - Walk the Phase 10 deployment against all six pillars (cost optimization, reliability, performance efficiency, security, operational excellence, sustainability).
   - Document every place a "textbook" choice was consciously skipped for cost (Multi-AZ RDS, private subnets, ALB, multiple instances) directly in this file, next to the step that made the trade-off.
   - *Why? Because* the Well-Architected Framework is both a real AWS deliverable and the lens the SAA exam grades every scenario question through — reviewing your own deployment against it is the closest hands-on equivalent to the exam's actual reasoning style.
+
+- [ ] **11.8 RDS Read Replica (temporary) — exercise the CQRS read path against a real replica**
+  - Provision one `db.t4g.micro` RDS PostgreSQL read replica via Terraform (`replicate_source_db` pointing at 10.5's instance).
+  - Point `DB_READ_HOST` (and the other `DB_READ_*` vars, 4.6) at the replica's endpoint. This is the one step in the whole plan that requires **zero application code changes** — 4.6 was built specifically so this would be a connection-string change only, and until this step it's never actually been exercised against a real second instance.
+  - Generate a write burst (e.g. create/update several tournaments and matches back to back) and observe replication lag on the replica's CloudWatch metrics; confirm reads served through `queryBus` reflect the lag (a read immediately after a write may briefly return stale data) rather than assuming eventual consistency without seeing it happen.
+  - Note the added monthly cost on the billing dashboard (10.1), then explicitly decide — and record here — whether to keep the replica running or tear it down, the same keep-or-tear-down pattern as 11.2 and 11.4.
+  - Document, without deploying it, why this replica doesn't *scale itself*: plain RDS PostgreSQL has no autoscaling of replica count — that's an Aurora-only capability (Aurora Auto Scaling adds/removes replicas via Application Auto Scaling policies keyed on replica CPU/connections, and a cluster reader endpoint load-balances reads across however many exist). Getting real auto-created, horizontally-scaled read replicas would mean migrating off RDS Postgres to Aurora, which carries a materially higher always-on cost (no equivalent to a cheap `db.t4g.micro` floor) for a project with no read load that would ever justify it — the same "not solving a scaling problem that doesn't exist yet" principle this whole plan opens with (section header, line 3). Left as documented knowledge, not built.
+  - *Why? Because* 4.6 explicitly promised "route queries to a read replica... by changing a connection string" — leaving that promise untested means the CQRS read/write split looks complete in the architecture diagram but was never actually proven against a second physical database. This step proves it cheaply and temporarily, the same way 11.2 proves the NAT Gateway trade-off and 11.4 proves the ALB trade-off, instead of leaving it as an unexercised assumption.
 
 ---
 

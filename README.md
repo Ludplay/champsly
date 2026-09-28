@@ -4,6 +4,16 @@ A tournament management platform: create tournaments, seed groups, auto-generate
 
 This is also a learning project: the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) is a deliberate, staged roadmap from a working MVP toward a production-grade, cloud-deployed system (DDD-lite, CQRS, event-driven architecture with Kafka, observability, AWS via LocalStack and then real AWS, Kubernetes) — each phase chosen to demonstrate a specific principle, not just to add features.
 
+## Preview
+
+The app isn't deployed anywhere yet, so here's what it looks like running locally.
+
+![Active tournament dashboard](docs/screenshots/1.png)
+*Dashboard view of an ongoing tournament — groups, assigned players, wins, and scores.*
+
+![Phase and match management](docs/screenshots/2.png)
+*Phase management — creating phases and entering match scores round by round.*
+
 ## Monorepo layout
 
 ```
@@ -23,6 +33,12 @@ Everything lives in one repository deliberately — see the "Monorepo structure 
 **Frontend** — React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, axios.
 
 **Local infrastructure** — Docker Compose, PostgreSQL, Kafka + Zookeeper (provisioned as a placeholder for Phase 4, not yet consumed by the app).
+
+## System Design
+
+![Champsly target-state AWS system design](docs/system-design/champsly-system-design.svg)
+
+The target-state AWS deployment (Phase 10/11 of the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md)): the frontend (S3 + CloudFront) leads into API Gateway, which routes to an Auto Scaling Group of Backend API instances (Phase 11.3), a Lambda for the stateless schedule-preview route (10.7), and a Message Queue, before reaching RDS PostgreSQL. The database panel shows the CQRS read/write connection split built in Phase 4.6 — both connections point at the same instance until Phase 11.8 temporarily provisions a real read replica to test the swap.
 
 ## Getting started
 
@@ -66,9 +82,9 @@ See `backend/CLAUDE.md` for the full layer/naming conventions and `frontend/CLAU
 
 ### Architecture snapshot
 
-![Champsly architecture diagram — Phase 4 complete](architecture_diagrams/v4.png)
+![Champsly architecture diagram — Phase 4 complete](docs/architecture-diagrams/v4.png)
 
-A snapshot as of Phase 4 completion: solid boxes are implemented and wired, including the new CQRS application layer added in Phase 4 — controllers now dispatch through a `CommandBus`/`QueryBus` to 16 command handlers (writes) and 12 query handlers (reads), query handlers return DTOs instead of raw Sequelize rows, and reads go through a separate `readModels` Sequelize connection (`*ReadRepository`, `tournamentReadOwnershipService`) that points at the same database today but can be repointed at a real read replica later without touching a handler. Kafka/Zookeeper still aren't consumed — that lands in Phase 5. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each remaining piece lands as later phases land, or the [Phase 3](architecture_diagrams/v3.png) / [Phase 2](architecture_diagrams/v2.png) / [Phase 1](architecture_diagrams/v1.png) diagrams for earlier snapshots.
+A snapshot as of Phase 4 completion: solid boxes are implemented and wired, including the new CQRS application layer added in Phase 4 — controllers now dispatch through a `CommandBus`/`QueryBus` to 16 command handlers (writes) and 12 query handlers (reads), query handlers return DTOs instead of raw Sequelize rows, and reads go through a separate `readModels` Sequelize connection (`*ReadRepository`, `tournamentReadOwnershipService`) that points at the same database today but can be repointed at a real read replica later without touching a handler. Kafka/Zookeeper still aren't consumed — that lands in Phase 5. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each remaining piece lands as later phases land, or the [Phase 3](docs/architecture-diagrams/v3.png) / [Phase 2](docs/architecture-diagrams/v2.png) / [Phase 1](docs/architecture-diagrams/v1.png) diagrams for earlier snapshots.
 
 ## Project status
 
