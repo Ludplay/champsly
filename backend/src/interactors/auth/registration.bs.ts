@@ -1,11 +1,12 @@
 import { CreationAttributes } from 'sequelize';
 import type { UserRepository } from '../../shared/repositories/user.types';
 import type { RefreshTokenRepository } from '../../shared/repositories/refresh-token.types';
-import type { EmailVerificationTokenRepository } from '../../shared/repositories/email-verification-token.types';
-import type { EventBus } from '../../shared/events/event-bus.types';
+import type { OutboxRepository } from '../../shared/repositories/outbox.types';
+import type { TransactionManager, RequiredTransactionOptions } from '../../shared/persistence/transaction-manager.types';
 import PasswordHasher from '../../infra/auth/password-hasher';
 import TokenService from '../../infra/auth/token-service';
 import { User } from '../../infra/db/models/user';
+import { RefreshToken } from '../../infra/db/models/refresh-token';
 import { Email, AccountStatus } from '../../shared/value-objects';
 import { UserRegistered } from '../../shared/events';
 
@@ -31,25 +32,25 @@ interface RegistrationOutput {
 class RegistrationInteractor {
     private userRepository: UserRepository;
     private refreshTokenRepository: RefreshTokenRepository;
-    private emailVerificationTokenRepository: EmailVerificationTokenRepository;
     private passwordHasher: PasswordHasher;
     private tokenService: TokenService;
-    private eventBus: EventBus;
+    private outboxRepository: OutboxRepository;
+    private transactionManager: TransactionManager;
 
     constructor(params: {
         userRepository: UserRepository;
         refreshTokenRepository: RefreshTokenRepository;
-        emailVerificationTokenRepository: EmailVerificationTokenRepository;
         passwordHasher: PasswordHasher;
         tokenService: TokenService;
-        eventBus: EventBus;
+        outboxRepository: OutboxRepository;
+        transactionManager: TransactionManager;
     }) {
         this.userRepository = params.userRepository;
         this.refreshTokenRepository = params.refreshTokenRepository;
-        this.emailVerificationTokenRepository = params.emailVerificationTokenRepository;
         this.passwordHasher = params.passwordHasher;
         this.tokenService = params.tokenService;
-        this.eventBus = params.eventBus;
+        this.outboxRepository = params.outboxRepository;
+        this.transactionManager = params.transactionManager;
     }
 
     async execute(input: RegistrationInput): Promise<RegistrationOutput> {
@@ -64,27 +65,28 @@ class RegistrationInteractor {
             status: AccountStatus.PendingVerification
         };
 
-        const user = await this.userRepository.create(userRecord);
+        const refreshToken = this.tokenService.issueRefreshToken();
+
+        const user = await this.transactionManager.run(async (transaction) => {
+            const transactionOptions: RequiredTransactionOptions = { transaction };
+            const createdUser = await this.userRepository.create(userRecord, transactionOptions);
+
+            const refreshTokenRecord: CreationAttributes<RefreshToken> = {
+                user_id: createdUser.id,
+                token_hash: refreshToken.tokenHash,
+                expires_at: refreshToken.expiresAt
+            };
+
+            await this.refreshTokenRepository.create(refreshTokenRecord, transactionOptions);
+
+            // Committed together with the user, so the verification email is never sent for a rolled-back account.
+            const userRegisteredEvent = new UserRegistered(createdUser.id);
+            await this.outboxRepository.add(userRegisteredEvent, transactionOptions);
+
+            return createdUser;
+        });
 
         const accessToken = this.tokenService.issueAccessToken(user.id);
-        const refreshToken = this.tokenService.issueRefreshToken();
-        const emailVerificationToken = this.tokenService.issueEmailVerificationToken();
-
-        await this.refreshTokenRepository.create({
-            user_id: user.id,
-            token_hash: refreshToken.tokenHash,
-            expires_at: refreshToken.expiresAt
-        });
-
-        await this.emailVerificationTokenRepository.create({
-            user_id: user.id,
-            token_hash: emailVerificationToken.tokenHash,
-            expires_at: emailVerificationToken.expiresAt
-        });
-
-        // Only announce the user exists once every write it depends on has succeeded.
-        const userRegisteredEvent = new UserRegistered(user.id, user.email, user.name, emailVerificationToken.token);
-        await this.eventBus.publish(userRegisteredEvent);
 
         return {
             user: {

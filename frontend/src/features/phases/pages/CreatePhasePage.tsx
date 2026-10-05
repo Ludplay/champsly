@@ -22,7 +22,7 @@ export function CreatePhasePage({ onCreate, onCancel, loading, error }: CreatePh
       <PhaseForm
         defaultTournamentId={tournaments[0]?.id}
         defaultName=""
-        defaultStatus="active"
+        defaultStatus="waiting"
         defaultNumber={1}
         availableTournaments={tournaments}
         submitLabel={loading ? 'Saving…' : 'Save phase'}

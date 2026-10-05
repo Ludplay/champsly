@@ -18,6 +18,7 @@ const RefreshController = async (req: Request, res: Response, next: NextFunction
     });
 
     const responseBody = {
+        user: result.user,
         accessToken: result.accessToken,
         accessTokenExpiresAt: result.accessTokenExpiresAt
     };

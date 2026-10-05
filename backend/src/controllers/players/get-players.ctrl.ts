@@ -4,7 +4,8 @@ import { GetPlayersQuery } from '../../application/queries/get-players.query';
 const GetPlayersController = async (req: Request, res: Response, next: NextFunction) => {
     const queryBus = req.container.resolve('queryBus');
 
-    const query = new GetPlayersQuery();
+    const input = { userId: req.user!.id };
+    const query = new GetPlayersQuery(input);
 
     const response = await queryBus.execute(query);
 

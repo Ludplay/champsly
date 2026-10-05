@@ -14,6 +14,12 @@ import SequelizeMatchRepository from '../adapters/repositories/matchs.rep';
 import SequelizeUserRepository from '../adapters/repositories/users.rep';
 import SequelizeRefreshTokenRepository from '../adapters/repositories/refresh-tokens.rep';
 import SequelizeEmailVerificationTokenRepository from '../adapters/repositories/email-verification-tokens.rep';
+import SequelizeGroupStandingsRepository from '../adapters/repositories/group-standings.rep';
+import SequelizeOutboxRepository from '../adapters/repositories/outbox.rep';
+import SequelizeProcessedEventRepository from '../adapters/repositories/processed-events.rep';
+
+// Persistence
+import SequelizeTransactionManager from '../adapters/persistence/sequelize-transaction-manager';
 
 // Mail
 import ConsoleEmailSender from '../adapters/mail/console-email-sender';
@@ -27,6 +33,10 @@ import type { MatchRepository } from '../../shared/repositories/match.types';
 import type { UserRepository } from '../../shared/repositories/user.types';
 import type { RefreshTokenRepository } from '../../shared/repositories/refresh-token.types';
 import type { EmailVerificationTokenRepository } from '../../shared/repositories/email-verification-token.types';
+import type { GroupStandingsRepository, GroupStandingsReadRepository } from '../../shared/repositories/group-standings.types';
+import type { OutboxRepository, OutboxRelayRepository } from '../../shared/repositories/outbox.types';
+import type { ProcessedEventRepository } from '../../shared/repositories/processed-event.types';
+import type { TransactionManager } from '../../shared/persistence/transaction-manager.types';
 import type { EventBus } from '../../shared/events/event-bus.types';
 import type { EmailSender } from '../../shared/mail/email-sender.types';
 
@@ -82,14 +92,25 @@ import ResendVerificationInteractor from '../../interactors/auth/resend-verifica
 import CommandBus from '../../application/bus/command-bus';
 import QueryBus from '../../application/bus/query-bus';
 
-// Subscribers
-import SendVerificationEmailOnUserRegisteredSubscriber from '../events/subscribers/send-verification-email-on-user-registered';
+// Event consumers
+import SendVerificationEmailConsumer from '../events/consumers/send-verification-email.consumer';
+import PhaseCompletionConsumer from '../events/consumers/phase-completion.consumer';
+import GroupStandingsProjectionConsumer from '../events/consumers/group-standings-projection.consumer';
+
+// Stream processors
+import GroupStandingsProcessor from '../events/processors/group-standings.processor';
+
+// Outbox
+import OutboxRelay from '../events/outbox-relay';
 
 // Services
 import TournamentOwnershipService from '../../shared/services/tournament-ownership.service';
+import PlayerOwnershipService from '../../shared/services/player-ownership.service';
+import VerificationEmailService from '../../shared/services/verification-email.service';
 
 // Aux
 import InMemoryEventBus from '../adapters/events/in-memory-event-bus';
+import KafkaEventBus from '../adapters/events/kafka-event-bus';
 import PasswordHasher from '../auth/password-hasher';
 import TokenService from '../auth/token-service';
 
@@ -121,6 +142,8 @@ export interface Cradle {
 
     groupRepository: GroupRepository;
     groupReadRepository: GroupReadRepository;
+    groupStandingsRepository: GroupStandingsRepository;
+    groupStandingsReadRepository: GroupStandingsReadRepository;
     getGroupsQueryHandler: GetGroupsQueryHandler;
     getTournamentGroupsQueryHandler: GetTournamentGroupsQueryHandler;
     createGroupCommandHandler: CreateGroupCommandHandler;
@@ -146,10 +169,22 @@ export interface Cradle {
     refreshInteractor: RefreshInteractor;
     logoutInteractor: LogoutInteractor;
     resendVerificationInteractor: ResendVerificationInteractor;
-    sendVerificationEmailOnUserRegisteredSubscriber: SendVerificationEmailOnUserRegisteredSubscriber;
+    verificationEmailService: VerificationEmailService;
+    sendVerificationEmailConsumer: SendVerificationEmailConsumer;
+    phaseCompletionConsumer: PhaseCompletionConsumer;
+    groupStandingsProjectionConsumer: GroupStandingsProjectionConsumer;
+    groupStandingsProcessor: GroupStandingsProcessor;
+
+    transactionManager: TransactionManager;
+    outboxRepository: OutboxRepository;
+    outboxRelayRepository: OutboxRelayRepository;
+    processedEventRepository: ProcessedEventRepository;
+    outboxRelay: OutboxRelay;
 
     tournamentOwnershipService: TournamentOwnershipService;
     tournamentReadOwnershipService: TournamentOwnershipService;
+    playerOwnershipService: PlayerOwnershipService;
+    playerReadOwnershipService: PlayerOwnershipService;
 
     commandBus: CommandBus;
     queryBus: QueryBus;
@@ -162,6 +197,8 @@ export interface Cradle {
     passwordHasher: PasswordHasher;
     tokenService: TokenService;
 }
+
+const isTestEnvironment = process.env.NODE_ENV === 'test';
 
 // Container creation
 const container: AwilixContainer<Cradle> = createContainer<Cradle>();
@@ -195,6 +232,8 @@ container.register({
 
     groupRepository: asClass(SequelizeGroupRepository).scoped(),
     groupReadRepository: asClass(SequelizeGroupRepository).scoped().inject(() => ({ models: readModels })),
+    groupStandingsRepository: asClass(SequelizeGroupStandingsRepository).scoped(),
+    groupStandingsReadRepository: asClass(SequelizeGroupStandingsRepository).scoped().inject(() => ({ models: readModels })),
     getGroupsQueryHandler: asClass(GetGroupsQueryHandler).scoped(),
     getTournamentGroupsQueryHandler: asClass(GetTournamentGroupsQueryHandler).scoped(),
     createGroupCommandHandler: asClass(CreateGroupCommandHandler).scoped(),
@@ -220,6 +259,7 @@ container.register({
     refreshInteractor: asClass(RefreshInteractor).scoped(),
     logoutInteractor: asClass(LogoutInteractor).scoped(),
     resendVerificationInteractor: asClass(ResendVerificationInteractor).scoped(),
+    verificationEmailService: asClass(VerificationEmailService).scoped(),
 
     // Depends on the four scoped repositories above, so it's scoped too — a
     // singleton would pin it to whichever request's repository instances resolved it first.
@@ -234,6 +274,11 @@ container.register({
         matchRepository: container.cradle.matchReadRepository,
     })),
 
+    playerOwnershipService: asClass(PlayerOwnershipService).scoped(),
+    playerReadOwnershipService: asClass(PlayerOwnershipService).scoped().inject(() => ({
+        playerRepository: container.cradle.playerReadRepository,
+    })),
+
     // Controllers resolve these instead of individual handler tokens, so a handler
     // can be added/renamed/split without touching every controller that dispatches it.
     commandBus: asClass(CommandBus).scoped(),
@@ -243,18 +288,30 @@ container.register({
     readModels: asValue(readModels),
     logger: asValue(logger),
 
-    // In-memory now; swapped for a durable broker behind the same EventBus interface later.
-    // Singleton so a subscription registered once at startup keeps receiving events
-    // published from any request — a per-request (.scoped()) instance would lose them.
-    eventBus: asClass(InMemoryEventBus).singleton(),
+    // Singleton: it owns the broker connections and the subscriptions wired once at startup.
+    // Tests run without a broker, so they get the in-memory bus behind the same interface.
+    eventBus: isTestEnvironment ? asClass(InMemoryEventBus).singleton() : asClass(KafkaEventBus).singleton(),
 
     // Console-only stand-in for a real mail provider — logs instead of sending.
     emailSender: asClass(ConsoleEmailSender).singleton(),
 
-    // Subscribes to UserRegistered exactly once at startup (app.ts calls .subscribe()
-    // on this instance) — singleton so that one subscription is the only one ever
-    // registered on the shared eventBus.
-    sendVerificationEmailOnUserRegisteredSubscriber: asClass(SendVerificationEmailOnUserRegisteredSubscriber).singleton(),
+    // Resolved per event inside its own scope (see scopedEventHandler), like a request handler.
+    sendVerificationEmailConsumer: asClass(SendVerificationEmailConsumer).scoped(),
+    phaseCompletionConsumer: asClass(PhaseCompletionConsumer).scoped(),
+    groupStandingsProjectionConsumer: asClass(GroupStandingsProjectionConsumer).scoped(),
+
+    // Singleton: it owns its Kafka clients and the in-memory state store for the whole process.
+    groupStandingsProcessor: asClass(GroupStandingsProcessor).singleton(),
+
+    // Singleton: stateless, it only hands out transactions from the write connection's pool.
+    transactionManager: asClass(SequelizeTransactionManager).singleton(),
+    outboxRepository: asClass(SequelizeOutboxRepository).scoped(),
+    processedEventRepository: asClass(SequelizeProcessedEventRepository).scoped(),
+
+    // Same repository class under its own singleton token, so the singleton relay never resolves a scoped dependency.
+    outboxRelayRepository: asClass(SequelizeOutboxRepository).singleton(),
+    // Singleton: it owns its Kafka producer and the polling loop for the whole process.
+    outboxRelay: asClass(OutboxRelay).singleton(),
 
     // Stateless crypto utilities — no per-request data, so singleton avoids
     // re-reading env vars and re-instantiating bcrypt/jwt config on every request.

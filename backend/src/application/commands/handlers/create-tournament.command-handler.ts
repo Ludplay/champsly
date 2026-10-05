@@ -2,9 +2,11 @@ import { CreationAttributes } from 'sequelize';
 import type { TournamentRepository } from '../../../shared/repositories/tournament.types';
 import type { GroupRepository } from '../../../shared/repositories/group.types';
 import type { PhaseRepository } from '../../../shared/repositories/phase.types';
-import type { EventBus } from '../../../shared/events/event-bus.types';
+import type { OutboxRepository } from '../../../shared/repositories/outbox.types';
+import type PlayerOwnershipService from '../../../shared/services/player-ownership.service';
+import type { TransactionManager, TransactionOptions } from '../../../shared/persistence/transaction-manager.types';
 import { Tournament } from '../../../infra/db/models/tournament';
-import { isTournamentStatus } from '../../../shared/value-objects';
+import { isTournamentStatus, PhaseStatus } from '../../../shared/value-objects';
 import { ValidationError } from '../../../shared/errors';
 import { TournamentCreated } from '../../../shared/events';
 import type { CreateTournamentCommand } from '../create-tournament.command';
@@ -17,18 +19,24 @@ class CreateTournamentCommandHandler {
     private tournamentRepository: TournamentRepository;
     private groupRepository: GroupRepository;
     private phaseRepository: PhaseRepository;
-    private eventBus: EventBus;
+    private outboxRepository: OutboxRepository;
+    private transactionManager: TransactionManager;
+    private playerOwnershipService: PlayerOwnershipService;
 
     constructor(params: {
         tournamentRepository: TournamentRepository;
         groupRepository: GroupRepository;
         phaseRepository: PhaseRepository;
-        eventBus: EventBus;
+        outboxRepository: OutboxRepository;
+        transactionManager: TransactionManager;
+        playerOwnershipService: PlayerOwnershipService;
     }) {
         this.tournamentRepository = params.tournamentRepository;
         this.groupRepository = params.groupRepository;
         this.phaseRepository = params.phaseRepository;
-        this.eventBus = params.eventBus;
+        this.outboxRepository = params.outboxRepository;
+        this.transactionManager = params.transactionManager;
+        this.playerOwnershipService = params.playerOwnershipService;
     }
 
     async execute(command: CreateTournamentCommand) {
@@ -38,6 +46,9 @@ class CreateTournamentCommandHandler {
             throw new ValidationError(`Invalid tournament status: ${status}`);
         }
 
+        const rosterPlayerIds = players.map((player) => player.player_id);
+        await this.playerOwnershipService.assertPlayersOwned(rosterPlayerIds, userId);
+
         const inputRecord: CreationAttributes<Tournament> = {
             name,
             groups_quantity,
@@ -46,38 +57,43 @@ class CreateTournamentCommandHandler {
             user_id: userId
         };
 
-        const tournament = await this.tournamentRepository.create(inputRecord);
+        return await this.transactionManager.run(async (transaction) => {
+            const transactionOptions: TransactionOptions = { transaction };
 
-        // Stores the tournament's players
-        const playersIds = await this.storeTournamentPlayers(tournament, players);
+            const tournament = await this.tournamentRepository.create(inputRecord, transactionOptions);
 
-        // Creates groups
-        const groupsIds = await this.createTournamentGroups(tournament.id, groups_quantity);
+            // Stores the tournament's players
+            const playersIds = await this.storeTournamentPlayers(tournament, players, transactionOptions);
 
-        // Creates phases
-        await this.createTournamentPhases(tournament.id, phases_quantity);
+            // Creates groups
+            const groupsIds = await this.createTournamentGroups(tournament.id, groups_quantity, transactionOptions);
 
-        // Add players in groups
-        await this.assignPlayersToGroups(groupsIds, playersIds);
+            // Creates phases
+            await this.createTournamentPhases(tournament.id, phases_quantity, transactionOptions);
 
-        // Only announce the tournament exists once every write it depends on has succeeded
-        await this.eventBus.publish(new TournamentCreated(tournament.id, tournament.name));
+            // Add players in groups
+            await this.assignPlayersToGroups(groupsIds, playersIds, transactionOptions);
 
-        return tournament;
+            // Committed together with the tournament, so the event exists exactly when the tournament does
+            const tournamentCreatedEvent = new TournamentCreated(tournament.id, tournament.name);
+            await this.outboxRepository.add(tournamentCreatedEvent, { transaction });
+
+            return tournament;
+        });
     }
 
-    private async storeTournamentPlayers(tournament: Tournament, players: TournamentPlayerInput[]) {
+    private async storeTournamentPlayers(tournament: Tournament, players: TournamentPlayerInput[], transactionOptions: TransactionOptions) {
         const playersIds: number[] = [];
         players.forEach(player => {
             playersIds.push(player.player_id);
         });
 
-        await tournament.addPlayers(playersIds);
+        await tournament.addPlayers(playersIds, transactionOptions);
 
         return playersIds;
     }
 
-    private async createTournamentGroups(tournamentId: number, groupsQuantity: number) {
+    private async createTournamentGroups(tournamentId: number, groupsQuantity: number, transactionOptions: TransactionOptions) {
 
         const groupsIds: number[] = [];
 
@@ -88,7 +104,7 @@ class CreateTournamentCommandHandler {
                 number: i
             }
 
-            const group = await this.groupRepository.create(groupInput);
+            const group = await this.groupRepository.create(groupInput, transactionOptions);
             groupsIds.push(group.id);
 
         }
@@ -96,7 +112,7 @@ class CreateTournamentCommandHandler {
         return groupsIds;
     }
 
-    private async createTournamentPhases(tournamentId: number, phasesQuantity: number) {
+    private async createTournamentPhases(tournamentId: number, phasesQuantity: number, transactionOptions: TransactionOptions) {
 
         const phasesIds: number[] = [];
 
@@ -105,17 +121,17 @@ class CreateTournamentCommandHandler {
                 tournament_id: tournamentId,
                 name: `Phase ${i}`,
                 number: i,
-                status: 'waiting'
+                status: PhaseStatus.Waiting
             }
 
-            const phase = await this.phaseRepository.create(phaseInput);
+            const phase = await this.phaseRepository.create(phaseInput, transactionOptions);
             phasesIds.push(phase.id);
         }
 
         return phasesIds;
     }
 
-    private async assignPlayersToGroups(groupsIds: number[], playersIds: number[]) {
+    private async assignPlayersToGroups(groupsIds: number[], playersIds: number[], transactionOptions: TransactionOptions) {
 
         //sort randomly
         const sortedPlayersIds = [...playersIds].sort(() => Math.random() - 0.5);
@@ -125,7 +141,7 @@ class CreateTournamentCommandHandler {
             const groupId = groupsIds[indexGroup];
             const playerId = sortedPlayersIds[i];
 
-            await this.groupRepository.addPlayerInGroup(playerId, groupId);
+            await this.groupRepository.addPlayerInGroup(playerId, groupId, transactionOptions);
 
             indexGroup++;
 

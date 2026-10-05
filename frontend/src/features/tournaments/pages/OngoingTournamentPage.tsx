@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import type { Player } from '@/features/players/types/players';
 import type { Group } from '@/features/groups/types/groups';
 
+const STANDINGS_REFRESH_DELAY_MS = 1000;
+
 function sortPlayers(players: Player[]) {
   return [...players].sort((a, b) => {
     const aWins = (a as { wins?: number }).wins ?? 0;
@@ -46,7 +48,7 @@ export default function OngoingTournamentPage() {
     () => tournaments.find((tournament) => tournament.status === 'active'),
     [tournaments],
   );
-  const { groups, loading: groupsLoading, error: groupsError } = useGroups(activeTournament?.id, { skipIfNoTournamentId: true });
+  const { groups, loading: groupsLoading, error: groupsError, refreshGroups } = useGroups(activeTournament?.id, { skipIfNoTournamentId: true });
 
   const [activePhaseIndex, setActivePhaseIndex] = useState(0);
   const [activeRoundIndex, setActiveRoundIndex] = useState(0);
@@ -168,6 +170,10 @@ export default function OngoingTournamentPage() {
     try {
       await updateMatch(match.id, { player1_score: s.p1 ?? undefined, player2_score: s.p2 ?? undefined, winner_player_id: winnerId });
       await fetchMatches();
+      // Standings are updated asynchronously from the match events, so they trail the save slightly.
+      setTimeout(() => {
+        void refreshGroups();
+      }, STANDINGS_REFRESH_DELAY_MS);
       setScores((prev) => ({ ...(prev), [match.id]: { ...(prev[match.id] ?? {}), loading: false, error: undefined } }));
     } catch (err) {
       setScores((prev) => ({ ...(prev), [match.id]: { ...(prev[match.id] ?? {}), loading: false, error: 'Unable to save' } }));

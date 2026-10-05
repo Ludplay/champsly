@@ -10,7 +10,8 @@ class CreatePlayerCommandHandler {
 
     async execute(command: CreatePlayerCommand) {
         const inputRecord = {
-            name: command.name
+            name: command.name,
+            user_id: command.userId
         };
 
         return await this.playerRepository.create(inputRecord);

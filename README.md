@@ -32,7 +32,7 @@ Everything lives in one repository deliberately — see the "Monorepo structure 
 
 **Frontend** — React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, axios.
 
-**Local infrastructure** — Docker Compose, PostgreSQL, Kafka + Zookeeper (provisioned as a placeholder for Phase 4, not yet consumed by the app).
+**Local infrastructure** — Docker Compose, PostgreSQL, Kafka (3-node KRaft cluster, `kafkajs` client) + kafka-ui.
 
 ## System Design
 
@@ -62,7 +62,8 @@ docker compose exec champsly-backend npm run migrate
 | Frontend | http://localhost:5173 | React app |
 | Backend API | http://localhost:4001/api/v1 | REST API |
 | PostgreSQL | localhost:5432 | db `champsly`, user `user` |
-| Kafka | localhost:9092 | provisioned, unused until Phase 4 |
+| Kafka | localhost:19092 / 29092 / 39092 | 3-node KRaft cluster |
+| kafka-ui | http://localhost:8080 | optional: `docker compose --profile tools up -d kafka-ui` |
 
 Source changes on the host are picked up live in both containers — no rebuild needed for day-to-day development. See `backend/CLAUDE.md` for details on the Docker dev workflow (in particular, why `npm install` for a new backend dependency has to run *inside* the container, not on the host).
 
@@ -82,20 +83,26 @@ See `backend/CLAUDE.md` for the full layer/naming conventions and `frontend/CLAU
 
 ### Architecture snapshot
 
-![Champsly architecture diagram — Phase 4 complete](docs/architecture-diagrams/v4.png)
+![Champsly architecture diagram — Phase 5 complete](docs/architecture-diagrams/v5.png)
 
-A snapshot as of Phase 4 completion: solid boxes are implemented and wired, including the new CQRS application layer added in Phase 4 — controllers now dispatch through a `CommandBus`/`QueryBus` to 16 command handlers (writes) and 12 query handlers (reads), query handlers return DTOs instead of raw Sequelize rows, and reads go through a separate `readModels` Sequelize connection (`*ReadRepository`, `tournamentReadOwnershipService`) that points at the same database today but can be repointed at a real read replica later without touching a handler. Kafka/Zookeeper still aren't consumed — that lands in Phase 5. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each remaining piece lands as later phases land, or the [Phase 3](docs/architecture-diagrams/v3.png) / [Phase 2](docs/architecture-diagrams/v2.png) / [Phase 1](docs/architecture-diagrams/v1.png) diagrams for earlier snapshots.
+A snapshot as of Phase 5 completion: solid boxes are implemented and wired, including the new event-driven layer added in Phase 5. The Kafka placeholder is now a 3-node KRaft cluster (no Zookeeper; RF 3, `min.insync.replicas=2`). Command handlers write their domain events to an `outbox` table inside the same Postgres transaction as the aggregate change, and an `OutboxRelay` publishes them to Kafka, so an event is never lost between the DB write and the publish. Consumers react to those events (verification email, automatic phase completion), and group standings are now an event-sourced projection: a stream processor folds `match.result-recorded`/`match.deleted` into `group.standings` snapshots with exactly-once Kafka transactions, and a sink writes them to the `group_standings` table that queries read from. The dashed `kafka-ui` box is an optional tool started with the `tools` compose profile. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each remaining piece lands as later phases land, or the [Phase 4](docs/architecture-diagrams/v4.png) / [Phase 3](docs/architecture-diagrams/v3.png) / [Phase 2](docs/architecture-diagrams/v2.png) / [Phase 1](docs/architecture-diagrams/v1.png) diagrams for earlier snapshots.
+
+### Kafka topics
+
+![Kafka topics in kafka-ui](docs/kafka-ui/topics.png)
+*The running cluster as seen in kafka-ui: one topic per domain event (`tournament.created`, `match.result-recorded`, `match.deleted`, `phase.completed`, `user.registered`), each with its own `.dlq`, plus the stream processor's compacted changelog and `group.standings` output. Every topic has 3 partitions and replication factor 3 with no out-of-sync replicas; `__transaction_state` is where Kafka tracks transactions, which lets the standings processor write each result all-or-nothing, so no update is lost or applied twice.*
 
 ## Project status
 
-Phases 1 through 4 of the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) are complete:
+Phases 1 through 5 of the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) are complete:
 
 - **Phase 1 — Foundation Hardening:** environment config, global error handling, request validation, structured logging, API versioning, rate limiting, Docker Compose, a full TypeScript migration, and repository interfaces enforcing dependency inversion.
 - **Phase 2 — Entities & Value Objects (DDD-lite):** type-safe value objects (`TournamentStatus`, `MatchStatus`, `Score`, `PhaseType`), entity behavior moved onto the models (`Tournament.canStart/canFinish`, `Match.recordResult`, `Group.canAddPlayer`), standings computation extracted out of the repository into a pure service, `CreateTournamentInteractor` decoupled from other interactors, and an in-memory domain event bus (`TournamentCreated`, `MatchResultRecorded`, `PhaseCompleted`).
 - **Phase 3 — Authentication & Login:** bcrypt password hashing, short-lived JWT access tokens with rotating opaque refresh tokens (reuse of a rotated-away token triggers theft detection, killing the whole session chain), email verification with a resend flow, `authenticate.middleware.ts` and `TournamentOwnershipService` scoping every tournament/group/phase/match to its owner, per-route rate limiting plus Helmet/CSP, and the matching frontend: `AuthContext`, a shared `api-client` with a 401→refresh→retry interceptor, register/login/verify-email screens, and protected routes.
 - **Phase 4 — CQRS:** write interactors renamed to command handlers (16) and read interactors to query handlers (12), each dispatched through a `CommandBus`/`QueryBus` instead of controllers resolving them by name, query handlers returning DTOs (`src/application/dtos/`) instead of raw Sequelize rows, and a second `readModels` Sequelize connection with its own `*ReadRepository` set and read-bound `TournamentOwnershipService` — pointed at the same database today, repointable to a real read replica later via env vars alone.
+- **Phase 5 — Event-Driven Architecture with Kafka:** a 3-node KRaft Kafka cluster (plus `kafka-ui`), a `KafkaEventBus` on `kafkajs` with an event registry, `schemaVersion`ed events, retries and per-topic dead-letter queues, consumers for verification email and automatic phase completion, group standings rebuilt as an event-sourced projection by a stream processor with a changelog-backed state store and exactly-once Kafka transactions, and a transactional outbox (`TransactionManager`, `outbox` table, `OutboxRelay`, `processed_events` deduplication) so publishing is atomic with the Postgres write.
 
-Phase 5 (Kafka event-driven architecture) onward — observability, testing, AWS deployment, Kubernetes — is planned but not yet started; see the plan for the full roadmap and the reasoning behind each step.
+Phase 6 (observability) onward — testing, AWS deployment, Kubernetes — is planned but not yet started; see the plan for the full roadmap and the reasoning behind each step.
 
 ## License
 

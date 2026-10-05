@@ -1,6 +1,7 @@
 import { Model, DataTypes, Sequelize, InferAttributes, InferCreationAttributes, CreationOptional, NonAttribute } from 'sequelize';
 import type { Db } from './models.types';
 import type { Tournament } from './tournament';
+import type { Player } from './player';
 import type { RefreshToken } from './refresh-token';
 import type { EmailVerificationToken } from './email-verification-token';
 import { AccountStatus } from '../../../shared/value-objects';
@@ -14,6 +15,7 @@ export class User extends Model<InferAttributes<User>, InferCreationAttributes<U
     declare created_at: CreationOptional<Date>;
     declare updated_at: CreationOptional<Date>;
     declare Tournaments?: NonAttribute<Tournament[]>;
+    declare Players?: NonAttribute<Player[]>;
     declare RefreshTokens?: NonAttribute<RefreshToken[]>;
     declare EmailVerificationTokens?: NonAttribute<EmailVerificationToken[]>;
 
@@ -21,6 +23,11 @@ export class User extends Model<InferAttributes<User>, InferCreationAttributes<U
         User.hasMany(models.Tournament, {
             foreignKey: 'user_id',
             as: 'Tournaments'
+        });
+
+        User.hasMany(models.Player, {
+            foreignKey: 'user_id',
+            as: 'Players'
         });
 
         User.hasMany(models.RefreshToken, {

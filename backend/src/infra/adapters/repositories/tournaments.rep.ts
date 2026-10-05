@@ -4,6 +4,7 @@ import { Tournament } from '../../../infra/db/models/tournament';
 import { Player } from '../../../infra/db/models/player';
 import type { Db } from '../../../infra/db/models/models.types';
 import type { TournamentRepository } from '../../../shared/repositories/tournament.types';
+import type { TransactionOptions } from '../../../shared/persistence/transaction-manager.types';
 
 class SequelizeTournamentRepository implements TournamentRepository {
     private tournamentModel: typeof Tournament;
@@ -43,22 +44,24 @@ class SequelizeTournamentRepository implements TournamentRepository {
         return await this.tournamentModel.findByPk(id, options);
     }
 
-    async create(data: CreationAttributes<Tournament>) {
-        return await this.tournamentModel.create(data);
+    async create(data: CreationAttributes<Tournament>, options: TransactionOptions = {}) {
+        return await this.tournamentModel.create(data, options);
     }
 
-    async update(id: number, data: Partial<CreationAttributes<Tournament>>) {
-        const tournament = await this.tournamentModel.findByPk(id);
+    async update(id: number, data: Partial<CreationAttributes<Tournament>>, options: TransactionOptions = {}) {
+        const tournament = await this.tournamentModel.findByPk(id, options);
         if (tournament) {
-            await tournament.update(data);
+            await tournament.update(data, options);
             return tournament;
         } else {
             throw new NotFoundError('Tournament not found');
         }
     }
 
-    async delete(id: number) {
-        return await this.tournamentModel.destroy({ where: { id } });
+    async delete(id: number, options: TransactionOptions = {}) {
+        const destroyOptions = { where: { id }, transaction: options.transaction };
+
+        return await this.tournamentModel.destroy(destroyOptions);
     }
 }
 

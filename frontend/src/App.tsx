@@ -21,21 +21,21 @@ function getNavButtonClass(page: Page, currentPage: Page) {
   return isActive ? 'px-4 py-2 rounded bg-blue-500 text-white' : 'px-4 py-2 rounded bg-white';
 }
 
-function renderPage(page: Page, onLoginClick: () => void) {
-  if (page === 'players') return <ProtectedRoute onLoginClick={onLoginClick}><PlayersPage /></ProtectedRoute>;
-  if (page === 'tournaments') return <ProtectedRoute onLoginClick={onLoginClick}><TournamentsPage /></ProtectedRoute>;
-  if (page === 'groups') return <ProtectedRoute onLoginClick={onLoginClick}><GroupsPage /></ProtectedRoute>;
-  if (page === 'phases') return <ProtectedRoute onLoginClick={onLoginClick}><PhasesPage /></ProtectedRoute>;
+function renderPage(page: Page) {
+  if (page === 'players') return <ProtectedRoute><PlayersPage /></ProtectedRoute>;
+  if (page === 'tournaments') return <ProtectedRoute><TournamentsPage /></ProtectedRoute>;
+  if (page === 'groups') return <ProtectedRoute><GroupsPage /></ProtectedRoute>;
+  if (page === 'phases') return <ProtectedRoute><PhasesPage /></ProtectedRoute>;
   if (page === 'tests') return <TestsPage />;
   if (page === 'codeTests') return <CodeTestsPage />;
   if (page === 'login') return <LoginPage />;
   if (page === 'register') return <RegisterPage />;
-  return <ProtectedRoute onLoginClick={onLoginClick}><OngoingTournamentPage /></ProtectedRoute>;
+  return <ProtectedRoute><OngoingTournamentPage /></ProtectedRoute>;
 }
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<Page>('ongoing');
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, isRestoring, logout } = useAuth();
+  const [currentPage, setCurrentPage] = useState<Page>(isAuthenticated ? 'ongoing' : 'login');
 
   // Adjusted during render, not in an effect, guarded to fire once per transition.
   const [wasAuthenticated, setWasAuthenticated] = useState(isAuthenticated);
@@ -44,12 +44,21 @@ function App() {
     if (isAuthenticated && currentPage === 'login') {
       setCurrentPage('ongoing');
     }
+    if (!isAuthenticated) {
+      setCurrentPage('login');
+    }
   }
 
   // The verification email links to this exact path — handled here, ahead of
   // the tab-based nav, since there's no router to match it against.
   if (window.location.pathname === '/verify-email') {
     return <VerifyEmailPage />;
+  }
+
+  // Hold off until the startup restore settles, so a logged-in user doesn't see
+  // a flash of the login page on reload.
+  if (isRestoring) {
+    return null;
   }
 
   return (
@@ -104,7 +113,7 @@ function App() {
         </div>
       </nav>
 
-      {renderPage(currentPage, () => setCurrentPage('login'))}
+      {renderPage(currentPage)}
     </div>
   );
 }

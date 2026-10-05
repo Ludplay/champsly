@@ -4,7 +4,7 @@ import { CreatePlayerCommand } from '../../application/commands/create-player.co
 const CreatePlayerController = async (req: Request, res: Response, next: NextFunction) => {
     const commandBus = req.container.resolve('commandBus');
 
-    const input = req.body;
+    const input = { ...req.body, userId: req.user!.id };
     const command = new CreatePlayerCommand(input);
 
     const response = await commandBus.execute(command);

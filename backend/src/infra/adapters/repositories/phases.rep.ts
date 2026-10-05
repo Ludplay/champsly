@@ -1,8 +1,10 @@
-import { CreationAttributes } from 'sequelize';
+import { CreationAttributes, Op } from 'sequelize';
 import { NotFoundError } from '../../../shared/errors';
 import { Phase } from '../../../infra/db/models/phase';
 import type { Db } from '../../../infra/db/models/models.types';
 import type { PhaseRepository } from '../../../shared/repositories/phase.types';
+import { PhaseStatus } from '../../../shared/value-objects';
+import type { TransactionOptions } from '../../../shared/persistence/transaction-manager.types';
 
 class SequelizePhaseRepository implements PhaseRepository {
     private phaseModel: typeof Phase;
@@ -49,22 +51,39 @@ class SequelizePhaseRepository implements PhaseRepository {
         });
     }
 
-    async create(data: CreationAttributes<Phase>) {
-        return await this.phaseModel.create(data);
+    async create(data: CreationAttributes<Phase>, options: TransactionOptions = {}) {
+        return await this.phaseModel.create(data, options);
     }
 
-    async update(id: number, data: Partial<CreationAttributes<Phase>>) {
-        const phase = await this.phaseModel.findByPk(id);
+    async update(id: number, data: Partial<CreationAttributes<Phase>>, options: TransactionOptions = {}) {
+        const phase = await this.phaseModel.findByPk(id, options);
         if (phase) {
-            await phase.update(data);
+            await phase.update(data, options);
             return phase;
         } else {
             throw new NotFoundError('Phase not found');
         }
     }
 
-    async delete(id: number) {
-        return await this.phaseModel.destroy({ where: { id } });
+    async delete(id: number, options: TransactionOptions = {}) {
+        const destroyOptions = { where: { id }, transaction: options.transaction };
+
+        return await this.phaseModel.destroy(destroyOptions);
+    }
+
+    async markFinished(id: number, options: TransactionOptions = {}) {
+        const changes = { status: PhaseStatus.Finished };
+        const updateOptions = {
+            where: {
+                id,
+                status: { [Op.ne]: PhaseStatus.Finished }
+            },
+            transaction: options.transaction
+        };
+
+        const [affectedRows] = await this.phaseModel.update(changes, updateOptions);
+
+        return affectedRows > 0;
     }
 
     async getTournamentPhases(tournamentId: number) {

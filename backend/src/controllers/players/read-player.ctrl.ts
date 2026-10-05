@@ -5,7 +5,7 @@ const ReadPlayerController = async (req: Request, res: Response, next: NextFunct
     const queryBus = req.container.resolve('queryBus');
     const { id } = req.params;
 
-    const input = { id: Number(id) };
+    const input = { id: Number(id), userId: req.user!.id };
     const query = new ReadPlayerQuery(input);
 
     const response = await queryBus.execute(query);

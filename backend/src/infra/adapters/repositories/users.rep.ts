@@ -3,6 +3,7 @@ import { ConflictError, NotFoundError } from '../../../shared/errors';
 import { User } from '../../../infra/db/models/user';
 import type { Db } from '../../../infra/db/models/models.types';
 import type { UserRepository } from '../../../shared/repositories/user.types';
+import type { TransactionOptions } from '../../../shared/persistence/transaction-manager.types';
 
 class SequelizeUserRepository implements UserRepository {
     private userModel: typeof User;
@@ -19,9 +20,9 @@ class SequelizeUserRepository implements UserRepository {
         return await this.userModel.findOne({ where: { email } });
     }
 
-    async create(data: CreationAttributes<User>) {
+    async create(data: CreationAttributes<User>, options: TransactionOptions = {}) {
         try {
-            return await this.userModel.create(data);
+            return await this.userModel.create(data, options);
         } catch (err) {
             if (err instanceof UniqueConstraintError) {
                 throw new ConflictError('An account with this email already exists');
@@ -31,14 +32,14 @@ class SequelizeUserRepository implements UserRepository {
         }
     }
 
-    async update(id: number, data: Partial<CreationAttributes<User>>) {
-        const user = await this.userModel.findByPk(id);
+    async update(id: number, data: Partial<CreationAttributes<User>>, options: TransactionOptions = {}) {
+        const user = await this.userModel.findByPk(id, options);
 
         if (!user) {
             throw new NotFoundError('User not found');
         }
 
-        await user.update(data);
+        await user.update(data, options);
         return user;
     }
 }

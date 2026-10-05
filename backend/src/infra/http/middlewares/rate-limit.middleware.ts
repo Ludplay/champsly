@@ -9,7 +9,7 @@ const handler = (req: Request, res: Response) => {
 
 export const globalLimiter = rateLimit({
     windowMs: 60 * 1000,
-    limit: 10,
+    limit: 40,
     standardHeaders: true,
     legacyHeaders: false,
     handler
@@ -17,7 +17,7 @@ export const globalLimiter = rateLimit({
 
 export const writeLimiter = rateLimit({
     windowMs: 60 * 1000,
-    limit: 20,
+    limit: 40,
     standardHeaders: true,
     legacyHeaders: false,
     handler,

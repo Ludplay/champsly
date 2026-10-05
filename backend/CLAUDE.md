@@ -33,6 +33,32 @@ Skipping this step causes the container to crash-loop on `MODULE_NOT_FOUND` for 
 
 Port 4001 on the host is this container, not a locally-run `node app.js` — testing against `localhost:4001` exercises the real Docker container.
 
+### Kafka cluster
+
+Three KRaft nodes (combined broker+controller, no Zookeeper) on `apache/kafka:3.9.1`. All three must be running for the stack to work well; they form a quorum, so start them together (`docker compose up -d`).
+
+| Service | Internal (containers) | Host |
+|---|---|---|
+| `champsly-kafka-1` | `champsly-kafka-1:9092` | `localhost:19092` |
+| `champsly-kafka-2` | `champsly-kafka-2:9092` | `localhost:29092` |
+| `champsly-kafka-3` | `champsly-kafka-3:9092` | `localhost:39092` |
+
+Topics default to RF 3 with `min.insync.replicas=2`; topic auto-creation is disabled. `CLUSTER_ID` is fixed in `docker-compose.yml`. If you change it, delete the `kafka_1_data`/`kafka_2_data`/`kafka_3_data` volumes too.
+
+**kafka-ui** (topics, partitions, leaders, consumer lag, payloads) sits behind the `tools` profile and waits for all three brokers to be healthy:
+
+```bash
+docker compose --profile tools up -d kafka-ui   # http://localhost:8080
+```
+
+**CLI rules.** Kafka's scripts are not on `PATH`, so call them by full path (`/opt/kafka/bin/...`). Always override `KAFKA_HEAP_OPTS`: otherwise the CLI JVM inherits the broker's 384 MB heap and the 1 GB container is OOM-killed.
+
+```bash
+docker compose exec -e KAFKA_HEAP_OPTS=-Xmx128m champsly-kafka-2 /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+```
+
+**Memory.** The full stack needs WSL2 to have 10 GB: set `[wsl2]` `memory=10GB` in `C:\Users\<user>\.wslconfig`, then run `wsl --shutdown`. The three brokers take about 1.1 GB together at idle, with a 1 GB limit each; kafka-ui is capped at 512 MB.
+
 ## Architecture
 
 This is a Node.js/Express REST API for managing tournaments (Champsly). It follows a clean architecture with three layers connected via **Awilix** dependency injection:

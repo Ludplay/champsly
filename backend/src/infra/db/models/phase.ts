@@ -2,12 +2,13 @@ import { Model, DataTypes, Sequelize, InferAttributes, InferCreationAttributes, 
 import type { Db } from './models.types';
 import type { Match } from './match';
 import type { Tournament } from './tournament';
+import type { PhaseStatus } from '../../../shared/value-objects';
 
 export class Phase extends Model<InferAttributes<Phase>, InferCreationAttributes<Phase>> {
     declare id: CreationOptional<number>;
     declare tournament_id: number;
     declare name: string;
-    declare status: string;
+    declare status: PhaseStatus;
     declare number: CreationOptional<number | null>;
     declare created_at: CreationOptional<Date>;
     declare updated_at: CreationOptional<Date>;

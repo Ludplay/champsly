@@ -55,6 +55,20 @@ export function useGroups(tournamentId?: number, options?: { skipIfNoTournamentI
     void fetchGroups();
   }, [fetchGroups]);
 
+  // Background refresh: replaces the list without toggling `loading`, so the page doesn't flash.
+  const refreshGroups = useCallback(async () => {
+    if (tournamentId == null) {
+      return;
+    }
+
+    try {
+      const data = await getGroupsByTournamentRequest(tournamentId);
+      setGroups(data);
+    } catch {
+      // Keep showing the current groups; the next refresh or reload will catch up.
+    }
+  }, [tournamentId]);
+
   const createGroup = useCallback(async (input: GroupInput) => {
     setLoading(true);
     setError(null);
@@ -107,6 +121,7 @@ export function useGroups(tournamentId?: number, options?: { skipIfNoTournamentI
     loading,
     error,
     fetchGroups,
+    refreshGroups,
     createGroup,
     updateGroup,
     deleteGroup,

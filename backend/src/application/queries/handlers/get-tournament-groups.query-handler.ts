@@ -1,22 +1,24 @@
 import type { GroupReadRepository } from '../../../shared/repositories/group.types';
-import type { MatchRepository } from '../../../shared/repositories/match.types';
+import type { GroupStandingsReadRepository } from '../../../shared/repositories/group-standings.types';
 import type TournamentOwnershipService from '../../../shared/services/tournament-ownership.service';
-import { computeGroupStandings } from '../../../shared/services/group-standings.service';
+import { mergeGroupStandings } from '../../../shared/services/group-standings.service';
 import type { GroupStandingsDTO } from '../../dtos/group-standings.dto';
 import type { GetTournamentGroupsQuery } from '../get-tournament-groups.query';
 
+// Standings come from the projection the stream processor maintains, so they can trail
+// a just-recorded result by a moment (eventual consistency).
 class GetTournamentGroupsQueryHandler {
     private groupRepository: GroupReadRepository;
-    private matchRepository: MatchRepository;
+    private groupStandingsRepository: GroupStandingsReadRepository;
     private tournamentOwnershipService: TournamentOwnershipService;
 
     constructor(params: {
         groupReadRepository: GroupReadRepository;
-        matchReadRepository: MatchRepository;
+        groupStandingsReadRepository: GroupStandingsReadRepository;
         tournamentReadOwnershipService: TournamentOwnershipService;
     }) {
         this.groupRepository = params.groupReadRepository;
-        this.matchRepository = params.matchReadRepository;
+        this.groupStandingsRepository = params.groupStandingsReadRepository;
         this.tournamentOwnershipService = params.tournamentReadOwnershipService;
     }
 
@@ -30,9 +32,9 @@ class GetTournamentGroupsQueryHandler {
             return [];
         }
 
-        const matches = await this.matchRepository.getMatchesByGroupIds(groupIds);
+        const standings = await this.groupStandingsRepository.getByGroupIds(groupIds);
 
-        return computeGroupStandings(groups, matches);
+        return mergeGroupStandings(groups, standings);
     }
 
 }

@@ -1,6 +1,12 @@
 export { DomainEvent } from './domain-event';
+export type { DomainEventMetadata } from './domain-event';
+export type { MatchEventContext } from './match-event-context.types';
 export { TournamentCreated } from './tournament-created.event';
 export { MatchResultRecorded } from './match-result-recorded.event';
+export type { MatchResultRecordedProps } from './match-result-recorded.event';
+export { MatchDeleted } from './match-deleted.event';
 export { PhaseCompleted } from './phase-completed.event';
 export { UserRegistered } from './user-registered.event';
-export type { EventBus, DomainEventHandler } from './event-bus.types';
+export { GroupStandingsUpdated } from './group-standings-updated.event';
+export type { PlayerStanding } from './group-standings-updated.event';
+export type { EventBus, DomainEventHandler, EventClass, EventSubscriber } from './event-bus.types';

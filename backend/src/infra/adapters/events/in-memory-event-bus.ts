@@ -4,9 +4,7 @@ import logger from '../../config/logger';
 
 /**
  * Simple pub/sub, held in process memory — lost on restart, no replay, no cross-process
- * fan-out. That's the intentional trade-off for now: it lets interactors announce what
- * happened instead of calling side effects directly, without pulling in a broker yet.
- * Phase 5 swaps this for KafkaEventBus behind the same EventBus interface.
+ * fan-out. Used for tests, where a broker isn't available; KafkaEventBus is the real one.
  */
 class InMemoryEventBus implements EventBus {
     private handlers: Map<string, DomainEventHandler[]>;
@@ -17,13 +15,18 @@ class InMemoryEventBus implements EventBus {
         this.logger = params.logger;
     }
 
-    subscribe<T extends DomainEvent>(eventClass: EventClass<T>, handler: DomainEventHandler<T>): void {
+    // subscriberName is ignored: every handler runs in the publisher's process.
+    subscribe<T extends DomainEvent>(subscriberName: string, eventClass: EventClass<T>, handler: DomainEventHandler<T>): void {
         const eventName = eventClass.name;
         const existingHandlers = this.handlers.get(eventName) || [];
 
         existingHandlers.push(handler as DomainEventHandler);
         this.handlers.set(eventName, existingHandlers);
     }
+
+    async start(): Promise<void> {}
+
+    async stop(): Promise<void> {}
 
     async publish(event: DomainEvent): Promise<void> {
         const eventName = event.constructor.name;

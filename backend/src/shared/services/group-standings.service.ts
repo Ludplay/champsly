@@ -1,49 +1,68 @@
-import { InferAttributes } from 'sequelize';
-import { Match } from '../../infra/db/models/match';
-import type { GroupWithPlayers, GroupWithStats, PlayerStats, PlayerWithStats } from '../repositories/group.types';
+import type { GroupWithPlayers, GroupWithStats, PlayerWithStats } from '../repositories/group.types';
+import type { GroupStandingRecord } from '../repositories/group-standings.types';
+import type { PlayerStanding } from '../events';
 
-export type StandingsMatch = Pick<
-    InferAttributes<Match>,
-    'group_id' | 'player1_id' | 'player2_id' | 'player1_score' | 'player2_score' | 'winner_player_id'
->;
+export interface StandingsMatchResult {
+    player1Id: number;
+    player2Id: number;
+    player1Score: number;
+    player2Score: number;
+    winnerPlayerId: number | null;
+}
 
 /**
- * Computes wins/points per player, per group, from raw group + match data.
- * A pure function: no DB access, no side effects — in goes data, out comes standings.
+ * Folds match results into per-player standings. Pure: the same results always give the
+ * same standings, which is what lets them be rebuilt from the event log at any time.
  */
-export function computeGroupStandings(groups: GroupWithPlayers[], matches: StandingsMatch[]): GroupWithStats[] {
-    const statsByGroup = matches.reduce((acc: Record<number, Record<number, PlayerStats>>, match) => {
-        const groupId = match.group_id as number;
-        const groupStats = acc[groupId] || {};
+export function accumulateStandings(results: StandingsMatchResult[]): PlayerStanding[] {
+    const standingsByPlayer = new Map<number, PlayerStanding>();
 
-        const ensurePlayer = (playerId: number) => {
-            if (!groupStats[playerId]) {
-                groupStats[playerId] = { wins: 0, points: 0 };
-            }
-            return groupStats[playerId];
-        };
+    const ensurePlayer = (playerId: number): PlayerStanding => {
+        const existing = standingsByPlayer.get(playerId);
 
-        const player1Stats = ensurePlayer(match.player1_id);
-        const player2Stats = ensurePlayer(match.player2_id);
-
-        player1Stats.points += Number(match.player1_score) || 0;
-        player2Stats.points += Number(match.player2_score) || 0;
-
-        if (match.winner_player_id) {
-            ensurePlayer(match.winner_player_id).wins += 1;
+        if (existing) {
+            return existing;
         }
 
-        acc[groupId] = groupStats;
-        return acc;
-    }, {});
+        const created: PlayerStanding = { playerId, wins: 0, points: 0, matchesPlayed: 0 };
+        standingsByPlayer.set(playerId, created);
+
+        return created;
+    };
+
+    for (const result of results) {
+        const player1Standing = ensurePlayer(result.player1Id);
+        const player2Standing = ensurePlayer(result.player2Id);
+
+        player1Standing.points += result.player1Score;
+        player2Standing.points += result.player2Score;
+        player1Standing.matchesPlayed += 1;
+        player2Standing.matchesPlayed += 1;
+
+        if (result.winnerPlayerId) {
+            ensurePlayer(result.winnerPlayerId).wins += 1;
+        }
+    }
+
+    return [...standingsByPlayer.values()].sort((a, b) => a.playerId - b.playerId);
+}
+
+// Players without a stored standing yet (no recorded result) are shown with zeros.
+export function mergeGroupStandings(groups: GroupWithPlayers[], standings: GroupStandingRecord[]): GroupWithStats[] {
+    const standingsByGroupAndPlayer = new Map<string, GroupStandingRecord>(
+        standings.map((standing) => [`${standing.group_id}:${standing.player_id}`, standing])
+    );
 
     return groups.map((group): GroupWithStats => {
-        const groupStats = statsByGroup[group.id] || {};
-        const playersWithStats: PlayerWithStats[] = (group.Players || []).map((player) => ({
-            ...player,
-            wins: groupStats[player.id]?.wins || 0,
-            points: groupStats[player.id]?.points || 0
-        }));
+        const playersWithStats: PlayerWithStats[] = (group.Players || []).map((player) => {
+            const standing = standingsByGroupAndPlayer.get(`${group.id}:${player.id}`);
+
+            return {
+                ...player,
+                wins: standing?.wins ?? 0,
+                points: standing?.points ?? 0
+            };
+        });
 
         return {
             ...group,

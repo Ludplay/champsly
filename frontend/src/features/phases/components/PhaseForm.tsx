@@ -21,7 +21,7 @@ type PhaseFormProps = {
 export function PhaseForm({
   defaultTournamentId,
   defaultName = '',
-  defaultStatus = 'active',
+  defaultStatus = 'waiting',
   defaultNumber = 1,
   availableTournaments = [],
   submitLabel,
@@ -110,9 +110,9 @@ export function PhaseForm({
           disabled={disabled}
           required
         >
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-          <option value="completed">Completed</option>
+          <option value="waiting">Waiting</option>
+          <option value="in_progress">In progress</option>
+          <option value="finished">Finished</option>
         </select>
       </div>
 

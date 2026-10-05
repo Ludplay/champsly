@@ -18,7 +18,7 @@ When creating code, have in mind some style about the repo:
 ### architecture-evolution.md
 
 This project follows the plan described in 'architecture-evolution.md'. The user will prompt to execute each step.
-When and if it's going to be added information inside the step description after the implementation, use the word ' - Result:' and then add lines following ' -- '. Example:
+When and if it's going to be added information inside the step description after the implementation, use the word ' - Result:' and then add lines following ' -- '. SUMMARIZE IT. RESULT SHALL NOT BE MORE THAN 7 LINES OR 100 WORDS. Example:
 
 - [✅] **4.4 Read models / DTOs**
   - Create `src/application/dtos/` — plain output shapes (e.g., `TournamentSummaryDTO`, `MatchWithPlayersDTO`).

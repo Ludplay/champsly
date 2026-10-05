@@ -1,6 +1,7 @@
 import { CreationAttributes, InferAttributes } from 'sequelize';
 import { Player } from '../../infra/db/models/player';
 import { Group } from '../../infra/db/models/group';
+import type { TransactionOptions } from '../persistence/transaction-manager.types';
 
 export interface PlayerStats {
     wins: number;
@@ -22,10 +23,10 @@ export interface GroupRepository {
     getAllByUser(userId: number): Promise<Group[]>;
     getTournamentGroups(tournamentId: number): Promise<GroupWithPlayers[]>;
     getOne(id: number): Promise<Group | null>;
-    create(data: CreationAttributes<Group>): Promise<Group>;
-    update(id: number, data: Partial<CreationAttributes<Group>>): Promise<Group>;
-    delete(id: number): Promise<number>;
-    addPlayerInGroup(playerId: number, groupId: number): Promise<[number, number]>;
+    create(data: CreationAttributes<Group>, options?: TransactionOptions): Promise<Group>;
+    update(id: number, data: Partial<CreationAttributes<Group>>, options?: TransactionOptions): Promise<Group>;
+    delete(id: number, options?: TransactionOptions): Promise<number>;
+    addPlayerInGroup(playerId: number, groupId: number, options?: TransactionOptions): Promise<[number, number]>;
 }
 
 // Additive read-only subset (4.1) (architecture-evolution.md)

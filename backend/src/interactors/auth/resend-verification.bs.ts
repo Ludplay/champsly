@@ -1,26 +1,18 @@
 import type { UserRepository } from '../../shared/repositories/user.types';
-import type { EmailVerificationTokenRepository } from '../../shared/repositories/email-verification-token.types';
-import type { EmailSender } from '../../shared/mail/email-sender.types';
-import TokenService from '../../infra/auth/token-service';
+import type VerificationEmailService from '../../shared/services/verification-email.service';
 import { Email, AccountStatus } from '../../shared/value-objects';
 import type { ResendVerificationInput } from './resend-verification.types';
 
 class ResendVerificationInteractor {
     private userRepository: UserRepository;
-    private emailVerificationTokenRepository: EmailVerificationTokenRepository;
-    private tokenService: TokenService;
-    private emailSender: EmailSender;
+    private verificationEmailService: VerificationEmailService;
 
     constructor(params: {
         userRepository: UserRepository;
-        emailVerificationTokenRepository: EmailVerificationTokenRepository;
-        tokenService: TokenService;
-        emailSender: EmailSender;
+        verificationEmailService: VerificationEmailService;
     }) {
         this.userRepository = params.userRepository;
-        this.emailVerificationTokenRepository = params.emailVerificationTokenRepository;
-        this.tokenService = params.tokenService;
-        this.emailSender = params.emailSender;
+        this.verificationEmailService = params.verificationEmailService;
     }
 
     // Silently no-ops for an unknown or already-verified email — same outcome
@@ -33,22 +25,7 @@ class ResendVerificationInteractor {
             return;
         }
 
-        const emailVerificationToken = this.tokenService.issueEmailVerificationToken();
-
-        await this.emailVerificationTokenRepository.create({
-            user_id: user.id,
-            token_hash: emailVerificationToken.tokenHash,
-            expires_at: emailVerificationToken.expiresAt
-        });
-
-        const publicUrl = process.env.PUBLIC_URL;
-        const verificationLink = `${publicUrl}/verify-email?token=${emailVerificationToken.token}`;
-
-        await this.emailSender.send({
-            to: user.email,
-            subject: 'Verify your Champsly account',
-            body: `Hi ${user.name}, please verify your email by visiting: ${verificationLink}`
-        });
+        await this.verificationEmailService.send(user);
     }
 }
 

@@ -5,7 +5,7 @@ const DeletePlayerController = async (req: Request, res: Response, next: NextFun
     const commandBus = req.container.resolve('commandBus');
     const { id } = req.params;
 
-    const input = { id: Number(id) };
+    const input = { id: Number(id), userId: req.user!.id };
     const command = new DeletePlayerCommand(input);
 
     const deleted = await commandBus.execute(command);

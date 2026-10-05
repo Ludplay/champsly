@@ -1,14 +1,8 @@
-import { DomainEvent } from './domain-event';
+import { DomainEvent, type DomainEventMetadata } from './domain-event';
 
+// Carries only the id: events are persisted in the broker, so no PII or tokens go in them.
 export class UserRegistered extends DomainEvent {
-    readonly email: string;
-    readonly name: string;
-    readonly verificationToken: string;
-
-    constructor(userId: number, email: string, name: string, verificationToken: string) {
-        super(userId);
-        this.email = email;
-        this.name = name;
-        this.verificationToken = verificationToken;
+    constructor(userId: number, metadata?: DomainEventMetadata) {
+        super(userId, metadata);
     }
 }

@@ -5,7 +5,7 @@ const UpdatePlayerController = async (req: Request, res: Response, next: NextFun
     const commandBus = req.container.resolve('commandBus');
     const { id } = req.params;
 
-    const input = { id: Number(id), changes: req.body };
+    const input = { id: Number(id), changes: req.body, userId: req.user!.id };
     const command = new UpdatePlayerCommand(input);
 
     const response = await commandBus.execute(command);

@@ -1,5 +1,6 @@
 import type { MatchRepository } from '../../../shared/repositories/match.types';
 import type TournamentOwnershipService from '../../../shared/services/tournament-ownership.service';
+import type PlayerOwnershipService from '../../../shared/services/player-ownership.service';
 import { isMatchStatus } from '../../../shared/value-objects';
 import { ValidationError } from '../../../shared/errors';
 import type { CreateMatchCommand } from '../create-match.command';
@@ -7,13 +8,16 @@ import type { CreateMatchCommand } from '../create-match.command';
 class CreateMatchCommandHandler {
     private matchRepository: MatchRepository;
     private tournamentOwnershipService: TournamentOwnershipService;
+    private playerOwnershipService: PlayerOwnershipService;
 
     constructor(params: {
         matchRepository: MatchRepository;
         tournamentOwnershipService: TournamentOwnershipService;
+        playerOwnershipService: PlayerOwnershipService;
     }) {
         this.matchRepository = params.matchRepository;
         this.tournamentOwnershipService = params.tournamentOwnershipService;
+        this.playerOwnershipService = params.playerOwnershipService;
     }
 
     async execute(command: CreateMatchCommand) {
@@ -24,6 +28,9 @@ class CreateMatchCommandHandler {
         }
 
         await this.tournamentOwnershipService.getPhaseOwner(phase_id, userId);
+
+        const matchPlayerIds = [player1_id, player2_id];
+        await this.playerOwnershipService.assertPlayersOwned(matchPlayerIds, userId);
 
         const inputRecord = {
             phase_id,

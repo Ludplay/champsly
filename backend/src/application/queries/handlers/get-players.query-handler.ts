@@ -10,7 +10,7 @@ class GetPlayersQueryHandler {
     }
 
     async execute(query: GetPlayersQuery): Promise<PlayerDTO[]> {
-        const players = await this.playerRepository.getAll();
+        const players = await this.playerRepository.getAllByUser(query.userId);
         return players.map((player) => player.toJSON<PlayerDTO>());
     }
 

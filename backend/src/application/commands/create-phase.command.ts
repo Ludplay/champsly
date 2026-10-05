@@ -1,7 +1,7 @@
 import type { CreationAttributes } from 'sequelize';
 import type { Phase } from '../../infra/db/models/phase';
 
-type CreatePhaseFields = Pick<CreationAttributes<Phase>, 'tournament_id' | 'name' | 'status' | 'number'>;
+type CreatePhaseFields = Pick<CreationAttributes<Phase>, 'tournament_id' | 'name' | 'number'> & { status: string };
 
 export class CreatePhaseCommand {
     readonly tournament_id: CreatePhaseFields['tournament_id'];

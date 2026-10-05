@@ -36,11 +36,6 @@ export function setSession(user: User, token: string): void {
   notify();
 }
 
-export function setAccessToken(token: string): void {
-  accessToken = token;
-  notify();
-}
-
 export function clearSession(): void {
   currentUser = null;
   accessToken = null;

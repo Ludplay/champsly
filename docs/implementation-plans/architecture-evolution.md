@@ -50,7 +50,9 @@ Shared              → Value Objects (src/shared/value-objects/)
                       Domain Events base + named events (src/shared/events/)
                       Custom error classes (src/shared/errors/)
 Infrastructure      → Repository implementations (Sequelize, src/infra/adapters/repositories/)
-                      Event Bus — in-memory → Kafka (src/infra/adapters/events/; subscribers in src/infra/events/subscribers/)
+                      Event Bus — in-memory → Kafka, 3-node KRaft cluster (src/infra/adapters/events/;
+                      consumers in src/infra/events/consumers/, stream processors in src/infra/events/processors/)
+                      Transactional outbox (Postgres) → Kafka relay
                       AWS adapters (LocalStack: SQS/SNS/S3)
                       Observability (OTEL + Sentry + Pino + Prometheus)
 Platform            → Docker Compose → Kubernetes manifests
@@ -370,35 +372,134 @@ The mechanism is a **bearer JWT access token + rotating refresh token**, not ser
 ---
 
 ### Phase 5 — Event-Driven Architecture with Kafka
-*Goal: side-effects are triggered by events, not direct calls.*
+*Goal: side-effects are triggered by events, not direct calls; the group standings read model is derived from the event stream instead of recomputed on every read.*
+
+Decisions:
+- **3-node KRaft cluster** (combined broker+controller), no Zookeeper.
+- **Client: `kafkajs`.**
+- **Group standings are an event-sourced projection** built by a stream processor (5.4).
+- **Transactions are explicit parameters:** a Sequelize `Transaction` passed into repository calls (5.5); Kafka transactions for Kafka-to-Kafka (5.4).
+- **Straight to Kafka first, outbox after:** 5.2 publishes from handlers; 5.5 reroutes through the outbox without changing what gets published.
+- **Event shapes are final from the first publish (5.2)**, carry a `schemaVersion`, and contain no secrets.
 
 **Steps:**
 
-- [ ] **5.1 Add Kafka to Docker Compose**
-  - Add `zookeeper` and `kafka` services (or use `kafka-kraft` single-broker setup).
-  - Add `kafka-ui` service for local visibility.
-  - *Why? Because* running Kafka locally through Docker Compose is the only practical way to develop and test event-driven flows without a shared broker. The placeholder added in Phase 1 can now be activated. `kafka-ui` makes the otherwise opaque broker visible — you can inspect topics, consumer lag, and message payloads without writing a consumer just to debug.
+- [✅] **5.1 3-node KRaft cluster in Docker Compose**
+  - Prerequisite — WSL2 memory: set `[wsl2]` `memory=10GB` in `C:\Users\<user>\.wslconfig`, then `wsl --shutdown`. The default (50% of host RAM, ~7.7 GB) leaves ~4 GB free, and the cluster plus `kafka-ui` take up to 3.5 GB before Phase 6's stack.
+  - Remove the `champsly-zookeeper` and `champsly-kafka` placeholders: run `docker compose rm -sfv champsly-kafka champsly-zookeeper` **before** deleting them from `docker-compose.yml` (`-v` also removes their anonymous volumes). Nothing depends on them; the placeholder broker already crash-loops on a stale Zookeeper broker registration.
+  - Add `champsly-kafka-1`/`-2`/`-3` on `apache/kafka:3.9.1` (exact tag; 4.x waits until kafkajs is verified against it). No `depends_on` between them — they must start together to form a quorum.
+  - Shared config lives in one extension field (`x-kafka-common: &kafka-common`) merged into each node with `<<: *kafka-common`; each node sets only `KAFKA_NODE_ID`, its listeners, and its volume. *Why? Because* config drift between quorum members is the hardest failure to debug.
+  - Per-node environment — the image ignores its default `server.properties` once any `KAFKA_*` variable is set, so all of these are required:
+    - `KAFKA_NODE_ID=N`, `KAFKA_PROCESS_ROLES=broker,controller`, a shared `CLUSTER_ID` (generate once with `kafka-storage.sh random-uuid`; not a secret, so hardcoded in the compose file with a comment next to it: `# Changing this requires deleting kafka_1_data/kafka_2_data/kafka_3_data — formatted storage is bound to this ID`)
+    - `KAFKA_CONTROLLER_QUORUM_VOTERS=1@champsly-kafka-1:9093,2@champsly-kafka-2:9093,3@champsly-kafka-3:9093`
+    - `KAFKA_LISTENERS=CONTROLLER://:9093,INTERNAL://:9092,EXTERNAL://:N9092` — `19092`/`29092`/`39092`, published 1:1 on the host
+    - `KAFKA_ADVERTISED_LISTENERS=INTERNAL://champsly-kafka-N:9092,EXTERNAL://localhost:N9092`
+    - `KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT`, `KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL`, `KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER`
+    - `KAFKA_LOG_DIRS=/var/lib/kafka/data`
+    - `KAFKA_DEFAULT_REPLICATION_FACTOR=3`, `KAFKA_MIN_INSYNC_REPLICAS=2`, `KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=3`, `KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=3`, `KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=2`, `KAFKA_AUTO_CREATE_TOPICS_ENABLE=false`, `KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0`
+    - `KAFKA_HEAP_OPTS=-Xmx384m -Xms384m`, with `mem_limit: 1g` on the container
+  - Storage: one named volume per node (`kafka_1_data`, …) mounted at `/var/lib/kafka/data` — that path already exists in the image owned by `appuser`, so the volume gets the right ownership.
+  - Healthcheck (`CMD-SHELL`): `KAFKA_HEAP_OPTS=-Xmx128m /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092`, `start_period` ~30 s, `interval` 15–30 s.
+  - CLI rule (healthcheck, tests, and every later step): use the full path `/opt/kafka/bin/...` (not on `PATH`) and `KAFKA_HEAP_OPTS=-Xmx128m` — otherwise the CLI JVM inherits the broker heap and the container is OOM-killed. E.g. `docker compose exec -e KAFKA_HEAP_OPTS=-Xmx128m champsly-kafka-2 /opt/kafka/bin/kafka-topics.sh ...`.
+  - `kafka-ui`: `kafbat/kafka-ui` pinned to an exact tag, port `8080`, bootstrapped against the three internal listeners, `mem_limit: 512m`, `depends_on` the brokers being healthy, under `profiles: [tools]` (`docker compose --profile tools up -d kafka-ui`).
+  - The backend is not wired to Kafka here — that happens in 5.2.
+  - **Verify** (record observed results in the Result note). Start `kafka-ui` before stopping any node — its `depends_on: service_healthy` only gates startup, so it refuses to start while a node is down. Exec into a node that is still up. Produce with `kafka-console-producer.sh --producer-property acks=all --producer-property request.timeout.ms=5000 --producer-property delivery.timeout.ms=10000`, and read the retry WARN lines, not only the final `TimeoutException`.
+    - Quorum: `kafka-metadata-quorum.sh --bootstrap-server localhost:9092 describe --status` → 3 voters and a leader; `describe --replication` → all caught up.
+    - Test A: topic `cluster-test` (3 partitions, RF 3). Stop one node → `acks=all` still succeeds; `kafka-topics.sh --describe` shows moved leaders and ISR of 2. Restart → it rejoins the ISR, but leadership stays on the other two nodes: `auto.leader.rebalance.enable` only checks every 300 s and only above 10% imbalance. Run `kafka-leader-election.sh --bootstrap-server localhost:9092 --election-type PREFERRED --all-topic-partitions` to restore preferred leaders immediately.
+    - Test B: topic `cluster-test-strict` with `min.insync.replicas=3`. Stop one node → repeated `NOT_ENOUGH_REPLICAS` retries.
+    - Test C: kill a second node with `docker compose kill` (SIGKILL; controller majority lost) → produces time out instead of `NOT_ENOUGH_REPLICAS`, and topic creation fails. Restart both → everything recovers without intervention.
+      - Why a timeout: shrinking the ISR requires an `AlterPartition` request to the active controller, and with 1 of 3 voters left there is none. The surviving leader keeps its stale ISR of 2 (itself + the dead follower), which still satisfies `min.insync.replicas=2`, so it accepts the write and waits for an ack that never comes. Partitions led by a dead node can't elect a new leader either. Topic creation fails for the same reason: only the controller can create topics.
+    - Delete both test topics.
+  - Docs: add the Kafka services to "Docker Dev Environment" in `backend/CLAUDE.md` — node names and host ports, the `kafka-ui` profile, the CLI full-path and heap rules, and the 10 GB WSL2 memory requirement.
+  - Result:
+  -- `CLUSTER_ID=w3qTqfGXT_aga4tCVTjyKQ`; `kafka-ui` on `kafbat/kafka-ui:v1.5.0`. Environment is a nested anchor (`&kafka-common-env`): `<<: *kafka-common` replaces `environment` rather than merging it.
+  -- Quorum, Test A and Test B as predicted. The console producer exits `0` even when a send fails.
+  -- Test C: `docker compose stop` (SIGTERM) gives `NOT_ENOUGH_REPLICAS`, because the controlled shutdown commits the ISR shrink first. Use `docker compose kill` to get the timeout. Recovery was automatic.
+  -- A timed-out produce was still committed after recovery: a timeout means "unknown", not "failed".
+  - *Why? Because* a single broker hides everything that makes Kafka Kafka — replication, ISR, leader election, quorum — and `acks=all` against RF 1 is the same as `acks=1`. KRaft removes Zookeeper as a second distributed system, and `kafka-ui` makes topics, partitions, leaders, lag, and payloads visible without writing a debug consumer.
 
-- [ ] **5.2 KafkaEventBus**
+- [✅] **5.2 KafkaEventBus**
   - Install `kafkajs`.
-  - Create `src/infra/events/kafka-event-bus.ts` implementing the same interface as `InMemoryEventBus`.
-  - Register conditionally: use Kafka in `production`/`development`, in-memory in `test`.
-  - Topics map 1:1 to domain events: `tournament.created`, `match.result-recorded`, `phase.completed`, `user.registered`.
-  - *Why? Because* the in-memory event bus from Phase 2 is lost on process restart — it has no durability, no replay capability, and no fan-out to other services. Kafka provides a durable, ordered, replayable log that survives restarts and can deliver the same event to multiple independent consumer groups simultaneously.
+  - Wire the backend: `depends_on` the three brokers with `condition: service_healthy`; add `KAFKA_BROKERS=champsly-kafka-1:9092,champsly-kafka-2:9092,champsly-kafka-3:9092` and `KAFKA_CLIENT_ID=champsly-backend` to `.env`/`.env.example` (internal hostnames — the backend runs in the container).
+  - Create `src/infra/adapters/events/kafka-event-bus.ts` implementing the `EventBus` port.
+  - Topics map 1:1 to domain events: `tournament.created`, `match.result-recorded`, `match.deleted`, `phase.completed`, `user.registered`. An event registry (`src/infra/adapters/events/event-registry.ts`) maps event class ↔ topic ↔ rehydration function, so consumers receive real event instances.
+  - Topics are created on startup through the admin client (idempotent `createTopics`): 3 partitions, RF 3, `min.insync.replicas=2`. `match.result-recorded` and `match.deleted` get `retention.ms=-1` (the source log 5.4 rebuilds from).
+  - Event shapes:
+    - `MatchResultRecorded` is enriched with `tournamentId`, `phaseId`, `groupId`, `player1Id`, `player2Id`.
+    - `MatchDeleted` (same fields) is published by `DeleteMatchCommandHandler`.
+    - The envelope carries `schemaVersion: 1`; the registry's rehydration throws on an unknown version (→ DLQ).
+  - `DomainEvent` gets a rehydration path that keeps the original `eventId`/`occurredOn` instead of regenerating them.
+  - Message keys: match events by `phaseId` (per-phase ordering); everything else by `aggregateId`.
+  - Producer: `idempotent: true`, `acks: -1`.
+  - Each subscriber is its own consumer group: `EventBus.subscribe` gains a subscriber name used as `groupId` (`InMemoryEventBus` ignores it).
+  - Lifecycle: explicit `start()`/`stop()` — `app.ts` registers every subscriber, then calls `start()`; `SIGTERM`/`SIGINT` disconnect producer and consumers.
+  - Each message is handled inside its own `container.createScope()`.
+  - Failure handling: retry with backoff; after N attempts, send to `<topic>.dlq` with the error attached and commit the offset.
+  - Register `KafkaEventBus` in `development`/`production`, `InMemoryEventBus` in `test`.
+  - Command handlers keep calling `eventBus.publish()` directly. `publish()` now only awaits the broker ack, so a failing subscriber no longer fails the HTTP request.
+  - Result:
+  -- Pulled forward from 5.3 to keep the token out of the event: `UserRegistered` carries only `userId`, and the subscriber issues the verification token itself. 5.3 still moves it to `consumers/` and extracts `VerificationEmailService`.
+  -- Each event is handled in its own DI scope via `scopedEventHandler`. Topics and `<topic>.dlq` are created on `start()`.
+  -- Verified live: all 4 publishing flows reach Kafka, match events share partition by `phaseId`, the email token verifies, and a `schemaVersion: 2` message lands in the DLQ.
+  -- kafkajs prints a harmless `TimeoutNegativeWarning` on Node 25.
+  - *Why? Because* the in-memory bus is lost on restart — no durability, no replay, no fan-out. Kafka is a durable, ordered, replayable log that delivers the same event to independent consumer groups.
 
-- [ ] **5.3 Consumers**
-  - Create `src/infra/events/consumers/` — one file per consumer group.
-  - Example: `MatchResultConsumer` listens on `match.result-recorded` and updates group standings in a read model.
-  - Example: `PhaseCompletionConsumer` listens for all matches in a phase to finish, then emits `phase.completed`.
-  - Consumers run in the same process initially; can be extracted to separate services later.
-  - *Why? Because* without consumers, events are published into Kafka but nothing reacts to them. Consumers turn events from a notification mechanism into the actual control flow of the system — enabling features like automatic standings recalculation and phase advancement without polling or tight coupling between the match update endpoint and the group standings logic.
+- [✅] **5.3 Consumers**
+  - Create `src/infra/events/consumers/` — one `*.consumer.ts` per consumer group — and merge `src/infra/events/subscribers/` into it.
+  - **`SendVerificationEmailConsumer`** (group `send-verification-email`) on `user.registered`:
+    - `UserRegistered` carries only `userId`.
+    - The consumer loads the user, skips if already verified, issues the token, stores its hash, and sends the email.
+    - Extract that sequence into a `VerificationEmailService` that `ResendVerificationInteractor` reuses.
+  - **`PhaseCompletionConsumer`** (group `phase-completion`) on `match.result-recorded`:
+    - Add a `PhaseStatus` value object (`Phase.status` is currently a raw string).
+    - If the phase has no unfinished matches, `phaseRepository.markFinished(phaseId)` runs a conditional update (`WHERE status <> 'finished'`) and publishes `PhaseCompleted` only if a row changed.
+  - Consumers use repositories directly, never the ownership services (there is no `req.user`).
+  - Consumers run in the same process.
+  - Result:
+  -- `PhaseStatus` = `waiting`/`in_progress`/`finished`. Create/update phase reject other values; a migration normalized old rows, and the frontend select uses the same values.
+  -- `markFinished` is a conditional update returning whether a row changed. A replayed duplicate event published no second `PhaseCompleted`.
+  -- Verified live: finishing a phase's last match marked the phase `finished` and published `PhaseCompleted` within ~40 ms.
+  -- `KafkaEventBus` now creates only missing topics; kafkajs logs `TOPIC_ALREADY_EXISTS` as an error on every restart.
+  - *Why? Because* without consumers, events go into Kafka and nothing reacts. Consumers make events the control flow — e.g. automatic phase completion without polling or coupling the match endpoint to it.
 
-- [ ] **5.4 Outbox pattern (reliability)**
-  - Create an `outbox` table in the DB.
-  - Command handlers write events to the outbox inside the same transaction as the aggregate change.
-  - A background poller reads unpublished outbox rows and pushes them to Kafka, then marks them published.
-  - Prevents event loss if Kafka is down when a command executes.
-  - *Why? Because* publishing to Kafka after saving to the DB is two separate I/O operations. If the process crashes between them, the DB has the change but the event was never published — every consumer is permanently unaware of what happened. The outbox pattern makes event publication atomic with the aggregate change: either both succeed or neither does.
+- [✅] **5.4 Group standings — event-sourced projection via stream processing**
+  - **Stream processor** — `src/infra/events/processors/group-standings.processor.ts` (group `group-standings-processor`), using kafkajs directly:
+    - Input: `match.result-recorded` + `match.deleted`; accepts `schemaVersion: 1`, anything else → DLQ.
+    - State store: latest result per match, in memory, backed by the compacted changelog `group-standings-processor.match-results-changelog` (key `matchId`; `match.deleted` writes a tombstone). Restored to the end before consuming input.
+    - The changelog has 3 partitions, and each record is sent to the **same partition number as the input record** that produced it (explicit `partition`), so an instance owning input partition *p* restores only changelog partition *p* — at startup and on every rebalance (`GROUP_JOIN`). Refuse to start if the partition counts differ.
+    - Fold: recompute the affected group's standings; extract the wins/points reducer from `computeGroupStandings` into a pure function both use.
+    - Output: a full snapshot per group on the compacted topic `group.standings` (key `groupId`).
+    - Exactly-once: changelog write, snapshot write, and `transaction.sendOffsets` in one Kafka transaction — producer with `transactionalId: 'group-standings-processor'`, `idempotent: true`, `maxInFlightRequests: 1`; consumer with `autoCommit: false`. The single static `transactionalId` is only safe for one instance; per-partition IDs are deferred to Phase 9.
+  - **Sink** — `src/infra/events/consumers/group-standings-projection.consumer.ts` (group `group-standings-projection`, `readUncommitted: false`): upserts each snapshot into `group_standings`, replacing the group's rows in one Postgres transaction.
+  - **Migration `group_standings`:** `group_id` (FK → groups, `ON DELETE CASCADE`), `player_id` (FK → players, cascade), `wins`, `points`, `matches_played`, `updated_at`; PK `(group_id, player_id)`.
+  - **Query side:** `GroupStandingsReadRepository` port (`src/shared/repositories/group-standings.types.ts`) + Sequelize implementation on the read connection. `GetTournamentGroupsQueryHandler` merges its standings with group players (no results yet → zeros) instead of calling `computeGroupStandings`.
+  - Standings are eventually consistent: the frontend's post-mutation refetch must tolerate a short lag.
+  - **Scripts:**
+    - `scripts/backfill-match-result-events.ts` publishes `MatchResultRecorded` (`schemaVersion: 1`) once for every finished match.
+    - `scripts/rebuild-group-standings.ts` resets the processor's consumer group to earliest, deletes the changelog and `group.standings` topics, truncates `group_standings`, and lets the processor rebuild.
+  - Result:
+  -- The snapshot is a `GroupStandingsUpdated` event in the registry, so the sink runs on the bus with retries and the DLQ. `computeGroupStandings` is replaced by `accumulateStandings`/`mergeGroupStandings`; the API shape is unchanged.
+  -- The restore uses a throwaway consumer group (kafkajs can't assign partitions) and is done when `END_BATCH_PROCESS` reaches the end offset.
+  -- `createMissingTopics` replaces kafkajs's `waitForLeaders`, which fails when KRaft briefly reports a new topic as unknown.
+  -- Verified: ~100 ms from `PUT` to the projection; rebuild reproduced identical rows.
+  -- Not handled: result and delete topics aren't ordered relative to each other.
+  - *Why? Because* standings are a pure function of match results: a fold over a replayable log can't drift the way mutated counters do when an update is missed, doubled, or edited. It also covers the core stream-processing ideas — state stores, changelogs, compaction, co-partitioning, exactly-once — without a JVM framework.
+
+- [✅] **5.5 Outbox pattern (reliability) — explicit transaction parameters**
+  - Repository write methods accept `options?: { transaction?: Transaction }`. A `TransactionManager` port (`src/shared/persistence/transaction-manager.types.ts`, Sequelize implementation in `src/infra/adapters/persistence/`) exposes `run(work: (transaction) => Promise<T>)`. Handlers pass the transaction into every call explicitly, association helpers like `tournament.addPlayers(...)` included.
+  - **`outbox` table:** `id` (UUID = `eventId`), `topic`, `message_key`, `event_type`, `payload` (JSONB), `occurred_on`, `created_at`, `published_at` (nullable), `attempts`, `last_error`; partial index on `created_at WHERE published_at IS NULL`.
+  - `OutboxRepository` port + Sequelize implementation. Handlers replace `eventBus.publish()` with `outboxRepository.add(event, { transaction })` inside the aggregate's transaction.
+  - Converted: `CreateTournamentCommandHandler`, `UpdateMatchCommandHandler`, `DeleteMatchCommandHandler`, `RegistrationInteractor`, and `PhaseCompletionConsumer`.
+  - **`OutboxRelay`** (`src/infra/events/outbox-relay.ts`, started from `app.ts`): in a DB transaction, `SELECT ... WHERE published_at IS NULL ORDER BY created_at LIMIT 100 FOR UPDATE SKIP LOCKED`, send the batch, mark the rows published, commit. Deletes published rows older than N days.
+  - Delivery is at-least-once: consumers with a Postgres side effect record `(consumer_group, event_id)` in a `processed_events` table in the same transaction as the side effect and skip events already recorded. The stream processor doesn't need this.
+  - Verify: stop all three brokers, create a tournament → `201` with an unpublished `outbox` row; start the brokers → the relay drains it and the consumers react.
+  - Result:
+  -- `payload` stores the full envelope; JSONB reorders its keys, values are unchanged. `created_at` defaults to `clock_timestamp()` so rows from one transaction keep their order.
+  -- Relay producer is not idempotent (kafkajs's idempotent producer retries forever, holding row locks); failures roll back, record `attempts`/`last_error`, back off up to 30 s. An unlocked, unlogged probe skips the transaction when idle.
+  -- Consumer group names live on the consumers (`static consumerGroup`).
+  -- Verified with brokers down: writes returned `200` in ~20 ms (controller returns 200, not 201); drained ~50 s after restart; phase completion and standings followed.
+  -- Not pruned: `processed_events`.
+  - *Why? Because* saving to the DB and publishing to Kafka are two separate I/O operations; a crash between them loses the event for good, and a Kafka transaction can't include a Postgres write. The outbox makes publication atomic with the aggregate change.
 
 ---
 
@@ -538,8 +639,10 @@ The mechanism is a **bearer JWT access token + rotating refresh token**, not ser
   - *Why? Because* stateful workloads in k8s require fundamentally different primitives than stateless ones. A `StatefulSet` gives pods stable network identities and ordered startup/shutdown — critical for a database. The `PersistentVolumeClaim` teaches volume lifecycle: data survives pod restarts, but the pod and its storage are decoupled.
 
 - [ ] **9.3 Kafka on k8s**
-  - Use Strimzi operator or Confluent's Helm chart.
-  - Define a `KafkaTopic` CRD for each domain event topic.
+  - Use Strimzi operator or Confluent's Helm chart, in KRaft mode — with Strimzi, a `KafkaNodePool` of 3 nodes with combined `broker`+`controller` roles, mirroring the Compose cluster from 5.1.
+  - Define a `KafkaTopic` CRD for each domain event topic, carrying the same settings 5.2 provisions through the admin client (partitions, RF 3, `min.insync.replicas=2`, infinite retention / compaction where 5.4 requires it). The 5.4 changelog topic must keep the same partition count as its input topics — its partition alignment depends on it.
+  - Optional exercise: split the `KafkaNodePool` into dedicated `controller` and `broker` pools, then repeat 5.1's Test C — losing two brokers no longer takes the controller majority with them.
+  - **Before the backend runs more than one replica (9.4):** the 5.4 stream processor's single static `transactionalId` is only safe for one instance. Switch it to one transactional producer per assigned input partition (`group-standings-processor-<partition>`), created and closed on rebalance — the EOS v1 model, since kafkajs lacks KIP-447. Alternatively, keep the processor a single-replica `Deployment` with `strategy: Recreate` and scale only the HTTP API.
   - *Why? Because* running Kafka on k8s via an operator teaches you the Operator pattern — the dominant approach for complex stateful systems in Kubernetes. A controller watches Custom Resource Definitions and reconciles cluster state; a `KafkaTopic` CRD means topic configuration lives in version control alongside application code, not in a separate admin command.
 
 - [ ] **9.4 Horizontal Pod Autoscaler**

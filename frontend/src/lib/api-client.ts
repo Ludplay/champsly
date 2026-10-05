@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-import { getAccessToken, setAccessToken, clearSession } from '@/features/auth/token-store';
+import { getAccessToken, setSession, clearSession } from '@/features/auth/token-store';
+import type { User } from '@/features/auth/types/auth';
 
 // The one shared axios instance every feature's *-api.ts file uses, so the
 // interceptor logic below only has to exist once instead of once per feature.
@@ -23,21 +24,29 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// De-dupes concurrent 401s into a single /auth/refresh call.
+type RefreshResponse = {
+  user: User;
+  accessToken: string;
+};
+
+// De-dupes concurrent refreshes (parallel 401s, the startup restore) into a single
+// /auth/refresh call. That matters beyond saving a request: refresh tokens rotate,
+// and the backend treats a second use of the same token as theft and revokes the
+// whole chain — so two concurrent calls would log the user out.
 let refreshPromise: Promise<string> | null = null;
 
 async function refreshAccessToken(): Promise<string> {
   if (!refreshPromise) {
     refreshPromise = axios
-      .post<{ accessToken: string }>(
+      .post<RefreshResponse>(
         '/auth/refresh',
         null,
         { baseURL: apiClient.defaults.baseURL, withCredentials: true },
       )
       .then((response) => {
-        const token = response.data.accessToken;
-        setAccessToken(token);
-        return token;
+        const { user, accessToken } = response.data;
+        setSession(user, accessToken);
+        return accessToken;
       })
       .finally(() => {
         refreshPromise = null;
@@ -45,6 +54,18 @@ async function refreshAccessToken(): Promise<string> {
   }
 
   return refreshPromise;
+}
+
+// The session lives in memory only, so a page load starts logged out; this trades
+// the httpOnly refresh cookie for a fresh session. Resolves false when there's no
+// valid cookie (never logged in, logged out, expired) — that's not an error.
+export async function restoreSession(): Promise<boolean> {
+  try {
+    await refreshAccessToken();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // On a 401, refresh once and retry. A 401 on /auth/* itself is never retried

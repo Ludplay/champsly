@@ -10,6 +10,6 @@
     "outDir": "dist",
     "types": ["node"]
   },
-  "include": ["app.ts", "src/**/*.ts"],
+  "include": ["app.ts", "src/**/*.ts", "scripts/**/*.ts"],
   "exclude": ["node_modules", "dist", "src/infra/db/migrations", "src/infra/db/seeders"]
 }

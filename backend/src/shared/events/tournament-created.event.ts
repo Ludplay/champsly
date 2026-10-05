@@ -1,10 +1,10 @@
-import { DomainEvent } from './domain-event';
+import { DomainEvent, type DomainEventMetadata } from './domain-event';
 
 export class TournamentCreated extends DomainEvent {
     readonly name: string;
 
-    constructor(aggregateId: number, name: string) {
-        super(aggregateId);
+    constructor(aggregateId: number, name: string, metadata?: DomainEventMetadata) {
+        super(aggregateId, metadata);
         this.name = name;
     }
 }

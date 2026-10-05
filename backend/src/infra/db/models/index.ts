@@ -9,6 +9,9 @@ import initMatchModel from './match';
 import initUserModel from './user';
 import initRefreshTokenModel from './refresh-token';
 import initEmailVerificationTokenModel from './email-verification-token';
+import initGroupStandingModel from './group-standing';
+import initOutboxMessageModel from './outbox-message';
+import initProcessedEventModel from './processed-event';
 import type { Db } from './models.types';
 
 const env = process.env.NODE_ENV || 'development';
@@ -30,6 +33,9 @@ function buildDb(sequelize: Sequelize): Db {
         User: initUserModel(sequelize),
         RefreshToken: initRefreshTokenModel(sequelize),
         EmailVerificationToken: initEmailVerificationTokenModel(sequelize),
+        GroupStanding: initGroupStandingModel(sequelize),
+        OutboxMessage: initOutboxMessageModel(sequelize),
+        ProcessedEvent: initProcessedEventModel(sequelize),
         sequelize,
         Sequelize,
     };
