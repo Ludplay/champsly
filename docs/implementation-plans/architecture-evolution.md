@@ -60,7 +60,7 @@ Platform            → Docker Compose → Kubernetes manifests
 
 > From Phase 1.11 onward the codebase is TypeScript (Sequelize migrations excepted). From Phase 1.12 onward, every repository is accessed through an `interface` defined in `src/shared/repositories/<resource>.types.ts` rather than the concrete Sequelize class — this is what makes the ports in Phase 4.1 an extension of an existing contract instead of a new one.
 
-> **Observability tooling decision:** the stack is OTEL/Jaeger (traces) + Sentry (error tracking) + Prometheus/Grafana (metrics) + Loki/Promtail (logs) — the standard open-source "three pillars" set, plus Sentry for error triage, which none of the other three do well. OpenSearch/Kibana was considered as a Loki alternative for log aggregation and deliberately left out: it solves the same problem as Loki (log search), and running both would be redundant. Loki wins here because it stays inside the same Grafana pane already used for traces and metrics, while Elasticsearch/OpenSearch's full-index architecture is heavier to self-host (JVM, shard management) for no benefit this project needs. Revisit this only if the goal shifts toward demonstrating ELK/OpenSearch specifically for a target job description.
+> **Observability tooling decision:** the stack is OTEL/Jaeger (traces) + Sentry (error tracking) + Prometheus/Grafana (metrics) + Loki/Alloy (logs) — the standard open-source "three pillars" set, plus Sentry for error triage, which none of the other three do well. OpenSearch/Kibana was considered as a Loki alternative for log aggregation and deliberately left out: it solves the same problem as Loki (log search), and running both would be redundant. Loki wins here because it stays inside the same Grafana pane already used for traces and metrics, while Elasticsearch/OpenSearch's full-index architecture is heavier to self-host (JVM, shard management) for no benefit this project needs. Revisit this only if the goal shifts toward demonstrating ELK/OpenSearch specifically for a target job description.
 
 > **Monorepo structure decision:** `backend/`, `frontend/`, `lambdas/*`, and `terraform/*` all live in one repository, and any future microservice joins them the same way, instead of each becoming its own repo. This is the right call *because* the explicit goal is "clone once, run everything" — a polyrepo would mean pinning compatible versions across repos and wiring compose/env files across repo boundaries, which fights that goal directly. It also means a change to the API contract (e.g., 1.7/1.8's v1→v2 versioning) and the frontend code that consumes it can land in one commit instead of two coordinated releases across two repos.
 >
@@ -324,50 +324,45 @@ The mechanism is a **bearer JWT access token + rotating refresh token**, not ser
   - Create `src/application/commands/` — one file per command, e.g., `create-tournament.command.ts` (a plain data class).
   - Rename current write interactors to `*CommandHandler` under `src/application/commands/handlers/`.
   - Command handlers: receive a command object, execute domain logic, persist, dispatch events.
-  - Result: 
+  - *Why? Because* mixing read and write intent inside a single "interactor" class makes the code harder to reason about, harder to optimize, and harder to evolve independently. A command is an explicit, named declaration of intent to change state — it makes the "what is this code supposed to do" question answerable at a glance.
+  - RESULT: 
   -- Scoped to the 16 tournament-domain write interactors (Tournament/Phase/Group/Match/Player create/update/delete, plus `GenerateGroupsPhaseMatches`). Auth's 6 write interactors (register/login/refresh/logout/verify-email/resend-verification) are deliberately left as plain interactors — Phase 3's own preamble already frames auth as its own bounded concern, not a domain refinement, and none of CQRS's actual payoffs (caching reads, scaling reads, a differently-shaped read model) apply to a login/logout flow.
   -- Controllers now construct the Command (still resolving each handler by its own Awilix token — the `CommandBus` indirection is 4.5's job, not this one) and call `.execute(command)`; the DI token for each renamed handler follows the class name (e.g. `createTournamentInteractor` → `createTournamentCommandHandler`).
   -- Extra: Found and removed one dead dependency while moving `GenerateGroupsPhaseMatchesCommandHandler`: it injected `createMatchInteractor` but never called it (match rows were always created via `matchRepository.createMany()` directly).
-  - *Why? Because* mixing read and write intent inside a single "interactor" class makes the code harder to reason about, harder to optimize, and harder to evolve independently. A command is an explicit, named declaration of intent to change state — it makes the "what is this code supposed to do" question answerable at a glance.
 
 - [✅] **4.3 Queries and Query Handlers**
   - Create `src/application/queries/` — one file per query, e.g., `get-tournament-matches.query.ts`.
   - Query handlers live in `src/application/queries/handlers/` — they read directly from the DB via read-optimized repository methods and return DTOs.
   - Query handlers must **never** mutate state.
-  - Result:
+  - *Why? Because* reads have fundamentally different requirements than writes: they need to be fast, can be safely cached, can hit read replicas, and must never produce side effects. Separating them makes those constraints enforceable at the code level — a query handler that calls a command handler is a compile-time (or lint-time) violation, not a runtime surprise.
+  - RESULT:
   -- All 11 remaining read interactors converted (`GetGroupsInteractor`'s two methods became two separate handlers: `GetGroupsQueryHandler` and `GetTournamentGroupsQueryHandler`, since they serve two different routes). `GetGroupsQueryHandler`/`GetTournamentGroupsQueryHandler`/`ReadGroupQueryHandler` depend on `GroupReadRepository` (the narrower read-only port) rather than the full `GroupRepository` — the interface finally has a real consumer. `src/interactors/` now holds only the 6 auth interactors; every tournament-domain interactor is gone.
   -- Found and fixed a real, if dormant, inconsistency while converting `ReadPhaseInteractor`: it never populated the `tournament` name field that the list endpoint (`GetPhasesInteractor`) already did, even though the frontend's `Phase` type declares that field required. It hadn't caused a visible bug because nothing in the frontend actually calls single-phase read. Added `getOneWithTournament` to `PhaseRepository` (same `Tournament` include `getTournamentPhases` already uses) so `ReadPhaseQueryHandler` now matches the list shape.
-  - *Why? Because* reads have fundamentally different requirements than writes: they need to be fast, can be safely cached, can hit read replicas, and must never produce side effects. Separating them makes those constraints enforceable at the code level — a query handler that calls a command handler is a compile-time (or lint-time) violation, not a runtime surprise.
 
 - [✅] **4.4 Read models / DTOs**
   - Create `src/application/dtos/` — plain output shapes (e.g., `TournamentSummaryDTO`, `MatchWithPlayersDTO`).
   - Query handlers map Sequelize rows to DTOs; controllers only receive DTOs.
-  - Result: 
-  -- 7 DTOs added: `PlayerDTO`, `TournamentDTO`, `PhaseDTO`, `MatchDTO` (each `InferAttributes<Model>`-based, matching the existing `GroupWithPlayers` convention), `GroupDTO`/`GroupStandingsDTO` (re-exports of the already-existing `GroupWithPlayers`/`GroupWithStats` types rather than duplicates), and `TournamentMatchesDTO` (formalizing the inline `{phases:[...]}` shape `GetTournamentMatchesQueryHandler` already built by hand). Chosen deliberately as a 1:1 formalization of the current response shapes, not a trim to only what the frontend's TS types declare — zero wire-format change, still gets the real benefit (a named contract that won't silently grow when the schema does), without a breaking change nothing asked for.
   - *Why? Because* controllers currently return raw Sequelize model instances, which serialize every column (including internal ones), leak database column names into the API contract, and make it impossible to reshape a response without touching the model. A DTO owns the output contract — it changes when the API spec changes, independently of how data is stored.
+  - RESULT: 
+  -- 7 DTOs added: `PlayerDTO`, `TournamentDTO`, `PhaseDTO`, `MatchDTO` (each `InferAttributes<Model>`-based, matching the existing `GroupWithPlayers` convention), `GroupDTO`/`GroupStandingsDTO` (re-exports of the already-existing `GroupWithPlayers`/`GroupWithStats` types rather than duplicates), and `TournamentMatchesDTO` (formalizing the inline `{phases:[...]}` shape `GetTournamentMatchesQueryHandler` already built by hand). Chosen deliberately as a 1:1 formalization of the current response shapes, not a trim to only what the frontend's TS types declare — zero wire-format change, still gets the real benefit (a named contract that won't silently grow when the schema does), without a breaking change nothing asked for.
 
 - [✅] **4.5 Wire CQRS into controllers**
   - Controllers resolve a `CommandBus` or `QueryBus` (simple dispatcher registered in Awilix) rather than specific interactors.
   - This decouples controllers from handler implementations.
-  - Result:
-  -- Added `src/application/bus/command-bus.ts` and `src/application/bus/query-bus.ts`. Each maintains an internal `Map` from command/query constructor to its handler, built once in the constructor from handlers injected by Awilix; `execute()` looks up the handler by `command.constructor`/`query.constructor` and throws a plain `Error` (a misconfiguration, not a request-shape problem, so it isn't one of the typed `AppError` subclasses) if none is registered.
-  -- Registered both as `.scoped()` in `register.ts`, alongside the existing handler registrations (which stay — the bus still resolves handlers by their Awilix token internally).
-  -- All 29 tournament-domain controllers (Tournament/Phase/Group/Match/Player × create/update/read/delete/list, plus `GenerateGroupsPhaseMatches` and the v1/v2 players list) now resolve `commandBus`/`queryBus` and call `.execute(command)`/`.execute(query)` instead of resolving a named handler token directly. Auth's 6 controllers are untouched, consistent with 4.2's decision to keep auth outside the command/query split.
-  -- `GetPlayersV2Controller` needed one adjustment beyond the mechanical swap: it reads `.length` off the query result to build the pagination `meta`, so it passes `queryBus.execute<PlayerDTO[]>(query)` — the only call site that needed an explicit generic instead of relying on the bus's `unknown` default, since every other controller only forwards the result into `res.json(...)` without touching it.
   - *Why? Because* if controllers resolve handlers by their exact registered name, adding, renaming, or splitting a handler requires editing both the handler file and every controller that references it. A bus acts as an indirection layer — the controller says "dispatch this command," and the bus decides which handler runs.
+  - RESULT:
+  -- `CommandBus`/`QueryBus` in `src/application/bus/`, registered `.scoped()`: each maps the command/query constructor to its handler and throws a plain `Error` if none is registered — a missing handler is a wiring bug, not a bad request, so it isn't an `AppError` and surfaces as a 500. Handlers keep their Awilix tokens.
+  -- All 29 tournament-domain controllers now call `commandBus`/`queryBus.execute(...)`; auth controllers are untouched (as in 4.2). Only `GetPlayersV2Controller` needs an explicit generic (`execute<PlayerDTO[]>`), since it reads `.length` for pagination.
 
 - [✅] **4.6 Separate read DB connection (optional, advanced)**
   - Configure a second Sequelize instance pointing to a read replica (or the same DB for now).
   - Query handlers use the read instance; command handlers use the write instance.
   - This is a prep step for eventual consistency patterns.
-  - Result:
-  -- Added `src/infra/config/config-sequelize-read.ts`, same `EnvConfig` shape as `config-sequelize.ts` but sourced from `DB_READ_HOST`/`DB_READ_PORT`/`DB_READ_USERNAME`/`DB_READ_PASSWORD`, each falling back to its `DB_*` counterpart when unset. Today all four point at the same `champsly-db` credentials; a real replica typically shares credentials too (streaming replication copies the whole cluster, roles included), but the separate username/password vars exist so a least-privilege, read-only DB role can be swapped in later without a code change — the same "just change a connection string" property the host/port split already has, applied to credentials. `config-sequelize.ts` itself is untouched — Sequelize CLI still reads only that file for migrations.
-  -- `src/infra/db/models/index.ts` now builds two `Sequelize` connections (`db`, `readDb`) through a shared `buildDb()` factory instead of one, and exports both.
-  -- Registered a second Awilix token per tournament-domain resource (`tournamentReadRepository`, `phaseReadRepository`, `groupReadRepository`, `matchReadRepository`, `playerReadRepository`) — the same repository class as the write token, `.inject()`-ed with `readModels` in place of `models`. `GroupReadRepository` (4.1's narrower read-only port) now has a second implementation living on its own connection, not just a narrower type reusing the write one.
-  -- `TournamentOwnershipService` got a read-bound twin, `tournamentReadOwnershipService`. The ownership check several query handlers call (`read-tournament`, `read-group`, `read-phase`, `read-match`, `get-tournament-groups`, `get-tournament-matches`) is itself a read, so leaving it on the write-bound service would have quietly defeated this step for exactly those handlers.
-  -- All 12 query handlers now depend on the `*Read*`-suffixed tokens; the 16 command handlers are untouched and still resolve the original write-bound tokens. Auth's repositories (`userRepository`, `refreshTokenRepository`, `emailVerificationTokenRepository`) stay write-only — consistent with 4.2/4.3 keeping auth outside CQRS.
-  -- Verified against the running Docker container, not just `tsc`: registration (write) and `GET /api/v1/get-tournaments` (read, through `tournamentReadRepository`) both round-tripped correctly against the real DB, with no Awilix resolution errors in the logs.
   - *Why? Because* even on the same database server today, pointing reads at a dedicated connection pool prepares the code to route queries to a read replica with zero application changes later. This is how you scale reads horizontally — not by rewriting business logic, but by changing a connection string.
+  - RESULT:
+  -- `config-sequelize-read.ts` reads `DB_READ_*`, falling back to `DB_*`. Same DB today; separate credential vars exist so a least-privilege read-only role can be swapped in later without code changes. `models/index.ts` exports two connections, `db` and `readDb`.
+  -- Each resource has a `*ReadRepository` token (same class, injected with `readModels`), plus `tournamentReadOwnershipService` — the ownership check query handlers run is itself a read, so leaving it on the write connection would defeat the split. All 12 query handlers use them; command handlers and auth stay on the write connection.
+  -- Verified in Docker: a write and a read both round-tripped against the real DB, with no Awilix errors.
 
 ---
 
@@ -411,12 +406,12 @@ Decisions:
       - Why a timeout: shrinking the ISR requires an `AlterPartition` request to the active controller, and with 1 of 3 voters left there is none. The surviving leader keeps its stale ISR of 2 (itself + the dead follower), which still satisfies `min.insync.replicas=2`, so it accepts the write and waits for an ack that never comes. Partitions led by a dead node can't elect a new leader either. Topic creation fails for the same reason: only the controller can create topics.
     - Delete both test topics.
   - Docs: add the Kafka services to "Docker Dev Environment" in `backend/CLAUDE.md` — node names and host ports, the `kafka-ui` profile, the CLI full-path and heap rules, and the 10 GB WSL2 memory requirement.
-  - Result:
+  - *Why? Because* a single broker hides everything that makes Kafka Kafka — replication, ISR, leader election, quorum — and `acks=all` against RF 1 is the same as `acks=1`. KRaft removes Zookeeper as a second distributed system, and `kafka-ui` makes topics, partitions, leaders, lag, and payloads visible without writing a debug consumer.
+  - RESULT:
   -- `CLUSTER_ID=w3qTqfGXT_aga4tCVTjyKQ`; `kafka-ui` on `kafbat/kafka-ui:v1.5.0`. Environment is a nested anchor (`&kafka-common-env`): `<<: *kafka-common` replaces `environment` rather than merging it.
   -- Quorum, Test A and Test B as predicted. The console producer exits `0` even when a send fails.
   -- Test C: `docker compose stop` (SIGTERM) gives `NOT_ENOUGH_REPLICAS`, because the controlled shutdown commits the ISR shrink first. Use `docker compose kill` to get the timeout. Recovery was automatic.
   -- A timed-out produce was still committed after recovery: a timeout means "unknown", not "failed".
-  - *Why? Because* a single broker hides everything that makes Kafka Kafka — replication, ISR, leader election, quorum — and `acks=all` against RF 1 is the same as `acks=1`. KRaft removes Zookeeper as a second distributed system, and `kafka-ui` makes topics, partitions, leaders, lag, and payloads visible without writing a debug consumer.
 
 - [✅] **5.2 KafkaEventBus**
   - Install `kafkajs`.
@@ -437,12 +432,12 @@ Decisions:
   - Failure handling: retry with backoff; after N attempts, send to `<topic>.dlq` with the error attached and commit the offset.
   - Register `KafkaEventBus` in `development`/`production`, `InMemoryEventBus` in `test`.
   - Command handlers keep calling `eventBus.publish()` directly. `publish()` now only awaits the broker ack, so a failing subscriber no longer fails the HTTP request.
-  - Result:
+  - *Why? Because* the in-memory bus is lost on restart — no durability, no replay, no fan-out. Kafka is a durable, ordered, replayable log that delivers the same event to independent consumer groups.
+  - RESULT:
   -- Pulled forward from 5.3 to keep the token out of the event: `UserRegistered` carries only `userId`, and the subscriber issues the verification token itself. 5.3 still moves it to `consumers/` and extracts `VerificationEmailService`.
   -- Each event is handled in its own DI scope via `scopedEventHandler`. Topics and `<topic>.dlq` are created on `start()`.
   -- Verified live: all 4 publishing flows reach Kafka, match events share partition by `phaseId`, the email token verifies, and a `schemaVersion: 2` message lands in the DLQ.
   -- kafkajs prints a harmless `TimeoutNegativeWarning` on Node 25.
-  - *Why? Because* the in-memory bus is lost on restart — no durability, no replay, no fan-out. Kafka is a durable, ordered, replayable log that delivers the same event to independent consumer groups.
 
 - [✅] **5.3 Consumers**
   - Create `src/infra/events/consumers/` — one `*.consumer.ts` per consumer group — and merge `src/infra/events/subscribers/` into it.
@@ -455,12 +450,12 @@ Decisions:
     - If the phase has no unfinished matches, `phaseRepository.markFinished(phaseId)` runs a conditional update (`WHERE status <> 'finished'`) and publishes `PhaseCompleted` only if a row changed.
   - Consumers use repositories directly, never the ownership services (there is no `req.user`).
   - Consumers run in the same process.
-  - Result:
+  - *Why? Because* without consumers, events go into Kafka and nothing reacts. Consumers make events the control flow — e.g. automatic phase completion without polling or coupling the match endpoint to it.
+  - RESULT:
   -- `PhaseStatus` = `waiting`/`in_progress`/`finished`. Create/update phase reject other values; a migration normalized old rows, and the frontend select uses the same values.
   -- `markFinished` is a conditional update returning whether a row changed. A replayed duplicate event published no second `PhaseCompleted`.
   -- Verified live: finishing a phase's last match marked the phase `finished` and published `PhaseCompleted` within ~40 ms.
   -- `KafkaEventBus` now creates only missing topics; kafkajs logs `TOPIC_ALREADY_EXISTS` as an error on every restart.
-  - *Why? Because* without consumers, events go into Kafka and nothing reacts. Consumers make events the control flow — e.g. automatic phase completion without polling or coupling the match endpoint to it.
 
 - [✅] **5.4 Group standings — event-sourced projection via stream processing**
   - **Stream processor** — `src/infra/events/processors/group-standings.processor.ts` (group `group-standings-processor`), using kafkajs directly:
@@ -477,13 +472,13 @@ Decisions:
   - **Scripts:**
     - `scripts/backfill-match-result-events.ts` publishes `MatchResultRecorded` (`schemaVersion: 1`) once for every finished match.
     - `scripts/rebuild-group-standings.ts` resets the processor's consumer group to earliest, deletes the changelog and `group.standings` topics, truncates `group_standings`, and lets the processor rebuild.
-  - Result:
+  - *Why? Because* standings are a pure function of match results: a fold over a replayable log can't drift the way mutated counters do when an update is missed, doubled, or edited. It also covers the core stream-processing ideas — state stores, changelogs, compaction, co-partitioning, exactly-once — without a JVM framework.
+  - RESULT:
   -- The snapshot is a `GroupStandingsUpdated` event in the registry, so the sink runs on the bus with retries and the DLQ. `computeGroupStandings` is replaced by `accumulateStandings`/`mergeGroupStandings`; the API shape is unchanged.
   -- The restore uses a throwaway consumer group (kafkajs can't assign partitions) and is done when `END_BATCH_PROCESS` reaches the end offset.
   -- `createMissingTopics` replaces kafkajs's `waitForLeaders`, which fails when KRaft briefly reports a new topic as unknown.
   -- Verified: ~100 ms from `PUT` to the projection; rebuild reproduced identical rows.
   -- Not handled: result and delete topics aren't ordered relative to each other.
-  - *Why? Because* standings are a pure function of match results: a fold over a replayable log can't drift the way mutated counters do when an update is missed, doubled, or edited. It also covers the core stream-processing ideas — state stores, changelogs, compaction, co-partitioning, exactly-once — without a JVM framework.
 
 - [✅] **5.5 Outbox pattern (reliability) — explicit transaction parameters**
   - Repository write methods accept `options?: { transaction?: Transaction }`. A `TransactionManager` port (`src/shared/persistence/transaction-manager.types.ts`, Sequelize implementation in `src/infra/adapters/persistence/`) exposes `run(work: (transaction) => Promise<T>)`. Handlers pass the transaction into every call explicitly, association helpers like `tournament.addPlayers(...)` included.
@@ -493,13 +488,13 @@ Decisions:
   - **`OutboxRelay`** (`src/infra/events/outbox-relay.ts`, started from `app.ts`): in a DB transaction, `SELECT ... WHERE published_at IS NULL ORDER BY created_at LIMIT 100 FOR UPDATE SKIP LOCKED`, send the batch, mark the rows published, commit. Deletes published rows older than N days.
   - Delivery is at-least-once: consumers with a Postgres side effect record `(consumer_group, event_id)` in a `processed_events` table in the same transaction as the side effect and skip events already recorded. The stream processor doesn't need this.
   - Verify: stop all three brokers, create a tournament → `201` with an unpublished `outbox` row; start the brokers → the relay drains it and the consumers react.
-  - Result:
+  - *Why? Because* saving to the DB and publishing to Kafka are two separate I/O operations; a crash between them loses the event for good, and a Kafka transaction can't include a Postgres write. The outbox makes publication atomic with the aggregate change.
+  - RESULT:
   -- `payload` stores the full envelope; JSONB reorders its keys, values are unchanged. `created_at` defaults to `clock_timestamp()` so rows from one transaction keep their order.
   -- Relay producer is not idempotent (kafkajs's idempotent producer retries forever, holding row locks); failures roll back, record `attempts`/`last_error`, back off up to 30 s. An unlocked, unlogged probe skips the transaction when idle.
   -- Consumer group names live on the consumers (`static consumerGroup`).
   -- Verified with brokers down: writes returned `200` in ~20 ms (controller returns 200, not 201); drained ~50 s after restart; phase completion and standings followed.
   -- Not pruned: `processed_events`.
-  - *Why? Because* saving to the DB and publishing to Kafka are two separate I/O operations; a crash between them loses the event for good, and a Kafka transaction can't include a Postgres write. The outbox makes publication atomic with the aggregate change.
 
 ---
 
@@ -508,41 +503,74 @@ Decisions:
 
 **Steps:**
 
-- [ ] **6.1 OpenTelemetry tracing**
-  - Install `@opentelemetry/sdk-node`, auto-instrumentation packages for HTTP and Sequelize.
-  - Initialize OTEL in `app.ts` before anything else (before the imports that need instrumenting).
-  - Export traces to Jaeger (add `jaeger` to Docker Compose).
+- [✅] **6.1 OpenTelemetry tracing**
+  - Install `@opentelemetry/sdk-node`, `@opentelemetry/exporter-trace-otlp-http` and the instrumentations for `http`, `express`, `pg`, `kafkajs` and `pino`. There is no OTEL Sequelize instrumentation; `pg` traces its queries at the driver level.
+  - We own the OTEL `NodeSDK` setup (Sentry plugs into it in 6.2). Put it in `src/infra/observability/tracing.ts` and preload it with `tsx --import` / `node --import` in the npm scripts, so it runs before any instrumented module loads. It loads `dotenv` itself.
+  - Export over OTLP to Jaeger v2 (`jaegertracing/jaeger:2.x`, OTLP 4318, UI 16686) in Docker Compose with a `mem_limit`.
+  - Outbox trace propagation: migration adds a nullable `traceparent` column to `outbox`. It is written from the active context when the event is stored, sent as a Kafka header by the relay, and extracted by the consumers. Without it, every Kafka trace starts detached from the request that caused it.
+  - Call `sdk.shutdown()` in the shutdown handler so buffered spans are flushed.
   - *Why? Because* when a request touches multiple layers or triggers multiple Kafka consumers, a single log line tells you nothing about which step was slow or which one failed. Distributed traces give you a full timeline of the entire request flow — HTTP handler → command handler → repository → DB query — with durations and errors at every hop.
+  - RESULT:
+  -- `tracing.ts` (NodeSDK, OTLP exporter; OTLP metrics/logs explicitly off, pino log sending off) and `trace-context.ts` (W3C traceparent get/restore); Jaeger `2.22.0` in Compose (UI 16686, 512 MB).
+  -- The kafkajs instrumentation overwrites `traceparent` from the active context, so the relay now sends one message at a time inside the stored context instead of one `sendBatch`.
+  -- `pg` uses `requireParentSpan`, so relay polling creates no traces.
+  -- Verified: register → outbox → relay `send` → consumer `process` → DB is one trace. Known noise: the standings processor's changelog restore emits a root trace per record on startup.
 
-- [ ] **6.2 Sentry — error tracking**
+- [✅] **6.2 Sentry — error tracking**
   - Install `@sentry/node`.
-  - Initialize the SDK in `app.ts` alongside the OTEL setup from 6.1 — the Sentry and OTEL SDKs share the same trace ID automatically, so a Sentry issue links straight to its Jaeger trace.
-  - Wire `Sentry.captureException()` into the global error handler (`error-handler.middleware.js`, Phase 1.4) so every `AppError` and unhandled exception is reported with full context, not just logged.
+  - Initialize Sentry in `tracing.ts`, after `sdk.start()`, with `enableOpenTelemetrySetup: false` and `openTelemetryIntegration()` (Sentry v11 "custom OpenTelemetry setup"). `@sentry/node` otherwise starts its own OTEL provider. The integration tags every Sentry event with the active OTEL span's trace ID, so Sentry issues and Jaeger traces share one trace ID. Only errors go to Sentry; spans stay in Jaeger.
+  - DSN comes from `SENTRY_DSN` (free sentry.io project); Sentry stays disabled when it is unset.
+  - Wire `Sentry.captureException()` into the global error handler (`error-handler.middleware.ts`, Phase 1.4) for unhandled exceptions; `AppError`s with a 4xx status are expected outcomes and are not reported.
   - Use the free hosted tier rather than self-hosting — Sentry's self-hosted deployment is itself a multi-service app (Kafka, ClickHouse, Redis, Postgres) and not worth the operational cost for a learning project.
   - *Why? Because* traces (6.1) tell you *where* time went and logs (6.5) tell you *what* happened, but neither is built for error triage: grouping the same exception across thousands of occurrences, flagging which release introduced a regression, or alerting the moment a brand-new error type appears. That's a distinct, complementary concern — not a duplicate of tracing or logging — and it plugs directly into the error-handling work already done in Phase 1.4.
+  - RESULT:
+  -- `@sentry/node` 11.8, initialized in `tracing.ts` only when `SENTRY_DSN` is set; v11 replaced the span processor/propagator wiring with `openTelemetryIntegration()`, so `@sentry/opentelemetry` isn't needed.
+  -- The error handler reports non-`AppError`s and 5xx `AppError`s; shutdown flushes Sentry with the spans (`shutdownObservability`).
+  -- Verified on sentry.io: a 500 created one issue carrying the same trace ID as its Jaeger trace; a 404 created none.
 
-- [ ] **6.3 Prometheus metrics**
+- [✅] **6.3 Prometheus metrics**
   - Install `prom-client`.
-  - Create `src/infra/observability/metrics.ts` — register counters/histograms: `http_request_duration_seconds`, `domain_events_published_total`, `kafka_consumer_lag`.
-  - Expose `/metrics` endpoint (separate from API routes, no auth needed internally).
+  - Create `src/infra/observability/metrics.ts` — register `http_request_duration_seconds` (histogram) and `domain_events_published_total` (counter, incremented by the outbox relay on successful send), plus the default Node process metrics.
+  - Consumer lag comes from a `danielqsj/kafka-exporter` container (`kafka_consumergroup_lag`), not app code. kafkajs doesn't expose lag, and a per-instance poller would report the same cluster-wide value from every replica.
+  - Expose `/metrics` endpoint (separate from API routes, mounted before the rate limiter and CORS, no auth needed internally; production exposure is handled in 10.11).
   - *Why? Because* logs tell you what happened in individual requests; metrics tell you how the system behaves over time. Histograms and counters let you answer "what is the p99 latency of tournament creation?" or "how many match results were recorded in the last hour?" — questions that are impossible to answer quickly by scanning log files.
+  - RESULT:
+  -- `prom-client` 15.1 in `metrics.ts` (own `Registry`); `/metrics` also sits before `pino-http` and is ignored by the http instrumentation, so scrapes create no logs or traces. `danielqsj/kafka-exporter:v1.10.0` in Compose (port 9308, 128 MB).
+  -- `route` label = template from the OTEL express instrumentation (Express drops `req.baseUrl` on errors); requests that reach no handler (404, auth 401, bad JSON) are `unmatched`. `domain_events_published_total{event_type}` counts per send, so redeliveries count again.
+  -- Verified: 201/500 carry their route template, registration increments the counter, `kafka_consumergroup_lag` reported per group/topic/partition.
 
-- [ ] **6.4 Grafana + Prometheus in Docker Compose**
+- [✅] **6.4 Grafana + Prometheus in Docker Compose**
   - Add `prometheus` and `grafana` services.
-  - Provide a `prometheus.yml` scrape config.
+  - Provide a `prometheus.yml` scrape config (backend `/metrics` and kafka-exporter).
+  - kafka-exporter reports `kafka_consumergroup_lag` 2 (`current_offset` -2) for partitions where the group never committed; lag panels and alerts must ignore series with `kafka_consumergroup_current_offset < 0`.
+  - Provision Grafana data sources from files: Prometheus, Jaeger (traces) and Loki (6.5).
   - Add a pre-built Grafana dashboard JSON for the tournament domain (matches per hour, phase completion rate, active tournaments).
   - *Why? Because* metrics that nobody looks at are useless. A domain-specific Grafana dashboard translates raw Prometheus counters into tournament-meaningful insights and makes observability tangible during development — you can watch live as a tournament progresses through phases rather than inferring it from logs.
+  - RESULT:
+  -- Prometheus `v3.15.1` (9090) and Grafana `13.2.4` (3000) with config in `observability/`; Loki data source moved to 6.5. Jaeger pinned to `2.20.0`: 2.21 removed the legacy API Grafana's Jaeger plugin uses.
+  -- New `tournaments{status}` gauge counts DB rows per scrape (panels use `max`). Event counters start at 0, otherwise `increase()` misses each type's first event.
+  -- Verified: both data sources healthy, every panel query returns data.
 
-- [ ] **6.5 Log aggregation**
-  - Add `loki` and `promtail` to Docker Compose.
-  - Configure Pino to write JSON logs to stdout; Promtail ships them to Loki.
-  - Add Loki as a Grafana data source.
-  - *Why? Because* `docker logs` is a dead end once you have multiple replicas or containers restarting. Loki + Promtail gives you a central, persistent, queryable log store that survives container restarts and correlates with traces and metrics in the same Grafana UI — this is the "logs" leg of the observability triad (traces, metrics, logs). Loki was kept over OpenSearch/Kibana deliberately — see the observability tooling decision note in section 2.
+- [✅] **6.5 Log aggregation**
+  - Add `loki` and `grafana/alloy` to Docker Compose. Promtail reached end-of-life in March 2026; Alloy is its replacement.
+  - Pino keeps writing JSON to stdout. Alloy discovers containers through the Docker socket and ships their logs to Loki.
+  - Provision the Loki data source next to Prometheus and Jaeger (`observability/grafana/provisioning/datasources/datasources.yml`).
+  - Logs carry `trace_id`/`span_id` (pino instrumentation from 6.1); configure a Loki derived field linking `trace_id` to the Jaeger data source.
+  - *Why? Because* `docker logs` is a dead end once you have multiple replicas or containers restarting. Loki + Alloy gives you a central, persistent, queryable log store that survives container restarts and correlates with traces and metrics in the same Grafana UI — this is the "logs" leg of the observability triad (traces, metrics, logs). Loki was kept over OpenSearch/Kibana deliberately — see the observability tooling decision note in section 2.
+  - RESULT:
+  -- Loki `3.7.9` (unpublished, filesystem/TSDB, 7d retention, 512 MB) and Alloy `v1.21.2` (UI 12345, 256 MB) with config in `observability/`; Alloy ships every `champsly-*` container, labelled `service`/`container`.
+  -- Pino lines get a `level` label (numeric → name) and `trace_id` as structured metadata; Sequelize's plain-text SQL lines pass through unparsed. Derived field links `trace_id` to Jaeger.
+  -- Verified: Loki data source healthy, backend lines queryable by `level`, their `trace_id` resolves in Jaeger. First start backfills container history; lines older than 7d are rejected (one-time 400s).
 
-- [ ] **6.6 Health and readiness endpoints**
+- [✅] **6.6 Health and readiness endpoints**
   - `GET /health` — always 200.
-  - `GET /health/ready` — checks DB connectivity and Kafka producer status; returns 503 if not ready.
+  - `GET /health/ready` — returns 503 only when the DB check (`SELECT 1`) fails. Kafka status is reported in the body but never fails readiness: the outbox lets writes succeed while Kafka is down, so pulling the pod from traffic would turn a degraded state into an outage.
+  - Both mounted before the rate limiter and CORS.
   - *Why? Because* Kubernetes (Phase 9) needs a way to distinguish a pod that is starting up from one that is permanently broken, and a pod that is ready to receive traffic from one that is still warming up. Without these endpoints, k8s routes requests to pods that haven't established their DB connection yet, causing spurious errors during every deployment.
+  - RESULT:
+  -- `HealthCheck` singleton (`health-check.ts`) runs `SELECT 1` on the write and read pools and `describeCluster` on its own no-retry Kafka admin, each with a 2s timeout; either DB down → 503. Errors are logged, not returned.
+  -- Mounted next to `/metrics` and ignored by the http instrumentation, so probes create no traces, logs, metrics or rate-limit hits.
+  -- Verified: DB stopped → 503 in 2s, Kafka stopped → 200 with `kafka: down`; both recover on restart.
 
 ---
 
@@ -713,6 +741,12 @@ Decisions:
 - [ ] **10.10 CI/CD — GitHub Actions**
   - Path-scoped workflows: a `backend/**` change runs lint/tests then redeploys to the EC2 instance (SSH or AWS SSM Run Command) with `git pull && docker compose up -d --build`; a `lambdas/schedule-preview/**` change repackages and redeploys only that Lambda; a `frontend/**` change rebuilds and syncs 10.8's S3 bucket.
   - *Why? Because* a live link that only updates when you remember to SSH in and redeploy manually will quietly drift from the repo — this is the mechanism that keeps "the code on GitHub" and "the site that's live" telling the same story. Scoping each workflow to its own path is what the monorepo structure decision (section 2) requires in practice: without it, editing the frontend would trigger a pointless EC2 redeploy, and the Lambda would never be releasable independently of the backend.
+
+- [ ] **10.11 Production observability**
+  - Phase 6's backends (Jaeger, Prometheus, Grafana, Loki) don't fit beside the app on one micro instance. Run one Grafana Alloy agent on the EC2 instance instead: it scrapes `/metrics` and kafka-exporter, receives the app's OTLP traces and ships container logs to Grafana Cloud's free tier (Prometheus, Tempo, Loki). Sentry is unchanged (`SENTRY_DSN` in the prod env).
+  - `/metrics` has no auth (6.3) and must not be public: it reveals routes, traffic and event volumes. Serve it on a separate port that Compose doesn't publish, so only Alloy on the internal network reaches it; API Gateway routes (10.6) stay scoped to `/api/*`.
+  - Sample traces (`OTEL_TRACES_SAMPLER=parentbased_traceidratio`, `OTEL_TRACES_SAMPLER_ARG`) to stay inside the free tier.
+  - *Why? Because* without it the live deployment only has Sentry: the metrics, traces and logs from Phase 6 exist only locally. 11.6 (CloudWatch) covers AWS infrastructure (EC2, RDS, API Gateway), not what happens inside the app.
 
 ---
 

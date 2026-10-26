@@ -1,9 +1,12 @@
 import { setTimeout as sleep } from 'timers/promises';
-import { Partitioners, type Message, type Producer, type TopicMessages } from 'kafkajs';
+import { context } from '@opentelemetry/api';
+import { Partitioners, type Message, type Producer } from 'kafkajs';
 import type { TransactionManager } from '../../shared/persistence/transaction-manager.types';
 import type { OutboxRelayRepository } from '../../shared/repositories/outbox.types';
 import type { OutboxMessage } from '../db/models/outbox-message';
 import { createKafkaClient } from '../adapters/events/kafka-client';
+import { contextFromTraceparent } from '../observability/trace-context';
+import { recordDomainEventPublished } from '../observability/metrics';
 import logger from '../config/logger';
 
 const BATCH_SIZE = 100;
@@ -139,24 +142,21 @@ class OutboxRelay {
         }
     }
 
-    // Grouped per topic in outbox order; with one request in flight, each partition keeps that order.
+    // One send per message, in outbox order: the Kafka instrumentation writes the trace header from the
+    // active context, so each send runs in the context of the request that stored its event.
     private async send(outboxMessages: OutboxMessage[]): Promise<void> {
-        const messagesByTopic = new Map<string, Message[]>();
-
         for (const outboxMessage of outboxMessages) {
             const message: Message = {
                 key: outboxMessage.message_key,
                 value: JSON.stringify(outboxMessage.payload)
             };
-            const topicMessages = messagesByTopic.get(outboxMessage.topic) || [];
+            const record = { topic: outboxMessage.topic, acks: -1, messages: [message] };
+            const parentContext = contextFromTraceparent(outboxMessage.traceparent);
 
-            topicMessages.push(message);
-            messagesByTopic.set(outboxMessage.topic, topicMessages);
+            await context.with(parentContext, () => this.producer.send(record));
+
+            recordDomainEventPublished(outboxMessage.event_type);
         }
-
-        const topicMessages: TopicMessages[] = [...messagesByTopic].map(([topic, messages]) => ({ topic, messages }));
-
-        await this.producer.sendBatch({ topicMessages, acks: -1 });
     }
 
     private async recordFailure(ids: string[], error: unknown): Promise<void> {

@@ -57,6 +57,18 @@ services:
         condition: service_healthy
       champsly-kafka-3:
         condition: service_healthy
+      champsly-jaeger:
+        condition: service_started
+
+  # In-memory trace storage: traces are lost on restart.
+  # Pinned to 2.20: 2.21 removed the legacy /api query endpoints that Grafana's Jaeger data source
+  # still uses (grafana/grafana-jaeger-datasource#87). Upgrade once the plugin moves to /api/v3.
+  champsly-jaeger:
+    image: jaegertracing/jaeger:2.20.0
+    mem_limit: 512m
+    ports:
+      - "16686:16686"
+      - "4318:4318"
 
   champsly-db:
     image: postgres:15
@@ -105,6 +117,86 @@ services:
     volumes:
       - kafka_3_data:/var/lib/kafka/data
 
+  # Consumer lag (kafka_consumergroup_lag) for Prometheus; kafkajs doesn't expose it.
+  champsly-kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.10.0
+    mem_limit: 128m
+    ports:
+      - "9308:9308"
+    command:
+      - --kafka.server=champsly-kafka-1:9092
+      - --kafka.server=champsly-kafka-2:9092
+      - --kafka.server=champsly-kafka-3:9092
+      - --kafka.version=3.9.0
+    depends_on:
+      champsly-kafka-1:
+        condition: service_healthy
+      champsly-kafka-2:
+        condition: service_healthy
+      champsly-kafka-3:
+        condition: service_healthy
+
+  champsly-prometheus:
+    image: prom/prometheus:v3.15.1
+    mem_limit: 512m
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  # Data sources and dashboards are provisioned from files; UI edits to them are not saved.
+  champsly-grafana:
+    image: grafana/grafana:13.2.4
+    mem_limit: 512m
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/tournaments.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - champsly-prometheus
+      - champsly-jaeger
+      - champsly-loki
+
+  # Queried through Grafana only, so the port isn't published.
+  champsly-loki:
+    image: grafana/loki:3.7.9
+    mem_limit: 512m
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./observability/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+
+  # Reads container logs through the Docker socket (read-only mount, but the socket API itself isn't).
+  champsly-alloy:
+    image: grafana/alloy:v1.21.2
+    mem_limit: 256m
+    ports:
+      - "12345:12345"
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/var/lib/alloy/data
+    depends_on:
+      - champsly-loki
+
   kafka-ui:
     image: kafbat/kafka-ui:v1.5.0
     profiles: [tools]
@@ -129,3 +221,7 @@ volumes:
   kafka_1_data:
   kafka_2_data:
   kafka_3_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  alloy_data:

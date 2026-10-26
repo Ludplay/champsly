@@ -1,0 +1,70 @@
+// Tails every champsly-* container through the Docker socket and ships its stdout/stderr to Loki.
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "champsly" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "champsly-.*"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "champsly" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.relabel.champsly.output
+  relabel_rules = discovery.relabel.champsly.rules
+  forward_to    = [loki.process.pino.receiver]
+}
+
+loki.process "pino" {
+  forward_to = [loki.write.loki.receiver]
+
+  // Pino JSON lines only; Sequelize's plain-text SQL lines pass through unlabeled.
+  stage.match {
+    selector = "{service=\"champsly-backend\"} |~ \"^\\\\{\""
+
+    stage.json {
+      expressions = {
+        level    = "",
+        trace_id = "",
+      }
+    }
+
+    // Pino logs numeric levels; Grafana colours and filters by name.
+    stage.template {
+      source   = "level"
+      template = "{{ if eq .Value \"10\" }}trace{{ else if eq .Value \"20\" }}debug{{ else if eq .Value \"30\" }}info{{ else if eq .Value \"40\" }}warn{{ else if eq .Value \"50\" }}error{{ else if eq .Value \"60\" }}fatal{{ else }}{{ .Value }}{{ end }}"
+    }
+
+    stage.labels {
+      values = { level = "" }
+    }
+
+    // One value per request: structured metadata instead of a label keeps the index small.
+    stage.structured_metadata {
+      values = { trace_id = "" }
+    }
+  }
+}
+
+loki.write "loki" {
+  endpoint {
+    url = "http://champsly-loki:3100/loki/api/v1/push"
+  }
+}

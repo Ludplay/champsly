@@ -103,6 +103,9 @@ import GroupStandingsProcessor from '../events/processors/group-standings.proces
 // Outbox
 import OutboxRelay from '../events/outbox-relay';
 
+// Observability
+import HealthCheck from '../observability/health-check';
+
 // Services
 import TournamentOwnershipService from '../../shared/services/tournament-ownership.service';
 import PlayerOwnershipService from '../../shared/services/player-ownership.service';
@@ -180,6 +183,7 @@ export interface Cradle {
     outboxRelayRepository: OutboxRelayRepository;
     processedEventRepository: ProcessedEventRepository;
     outboxRelay: OutboxRelay;
+    healthCheck: HealthCheck;
 
     tournamentOwnershipService: TournamentOwnershipService;
     tournamentReadOwnershipService: TournamentOwnershipService;
@@ -312,6 +316,9 @@ container.register({
     outboxRelayRepository: asClass(SequelizeOutboxRepository).singleton(),
     // Singleton: it owns its Kafka producer and the polling loop for the whole process.
     outboxRelay: asClass(OutboxRelay).singleton(),
+
+    // Singleton: it keeps one Kafka admin connection open across probes.
+    healthCheck: asClass(HealthCheck).singleton(),
 
     // Stateless crypto utilities — no per-request data, so singleton avoids
     // re-reading env vars and re-instantiating bcrypt/jwt config on every request.

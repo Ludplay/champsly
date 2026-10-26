@@ -7,8 +7,11 @@ import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
 import { scopePerRequest } from 'awilix-express';
 
+import { shutdownObservability } from './src/infra/observability/tracing';
+import { httpMetricsMiddleware, prometheusMetricsHandler } from './src/infra/observability/metrics';
 import logger from './src/infra/config/logger';
 import routes from './src/infra/http/routes';
+import { createHealthRouter } from './src/infra/http/routes/health';
 import container from './src/infra/config/register';
 import errorHandler from './src/infra/http/middlewares/error-handler.middleware';
 import { globalLimiter, writeLimiter } from './src/infra/http/middlewares/rate-limit.middleware';
@@ -32,6 +35,7 @@ eventBus.subscribe(GroupStandingsProjectionConsumer.consumerGroup, GroupStanding
 const isTestEnvironment = process.env.NODE_ENV === 'test';
 const groupStandingsProcessor = isTestEnvironment ? null : container.resolve('groupStandingsProcessor');
 const outboxRelay = isTestEnvironment ? null : container.resolve('outboxRelay');
+const healthCheck = container.resolve('healthCheck');
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -42,6 +46,12 @@ app.use(helmet({
     }
   }
 }));
+
+// Metrics: Internal-only scrape endpoint; ahead of logging, rate limiting and CORS.
+app.get('/metrics', prometheusMetricsHandler);
+// Probes: same placement as /metrics, so they are never rate limited and create no logs or metrics.
+app.use(createHealthRouter(healthCheck));
+app.use(httpMetricsMiddleware);
 app.use(pinoHttp({ logger }));
 app.use(express.json());
 app.use(cookieParser());
@@ -70,6 +80,8 @@ async function start() {
     await outboxRelay?.stop();
     await groupStandingsProcessor?.stop();
     await eventBus.stop();
+    await healthCheck.stop();
+    await shutdownObservability();
     process.exit(0);
   };
 

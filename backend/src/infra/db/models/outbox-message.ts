@@ -12,6 +12,7 @@ export class OutboxMessage extends Model<InferAttributes<OutboxMessage>, InferCr
     declare published_at: CreationOptional<Date | null>;
     declare attempts: CreationOptional<number>;
     declare last_error: CreationOptional<string | null>;
+    declare traceparent: CreationOptional<string | null>;
 }
 
 export default function initOutboxMessageModel(sequelize: Sequelize): typeof OutboxMessage {
@@ -55,6 +56,10 @@ export default function initOutboxMessageModel(sequelize: Sequelize): typeof Out
         },
         last_error: {
             type: DataTypes.TEXT,
+            allowNull: true
+        },
+        traceparent: {
+            type: DataTypes.STRING,
             allowNull: true
         }
     }, {

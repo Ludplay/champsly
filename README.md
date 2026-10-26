@@ -17,22 +17,23 @@ The app isn't deployed anywhere yet, so here's what it looks like running locall
 ## Monorepo layout
 
 ```
-backend/     Node.js/Express + TypeScript REST API (see backend/CLAUDE.md)
-frontend/    React + TypeScript + Vite web app (see frontend/CLAUDE.md)
-lambdas/     Standalone AWS Lambda functions (Phase 7.6 / 9.7 — not yet implemented)
-terraform/   Infrastructure as code for LocalStack and real AWS (Phase 7.7 / 9.2 — not yet implemented)
-docs/        Architecture plan and other project documentation
+backend/        Node.js/Express + TypeScript REST API (see backend/CLAUDE.md)
+frontend/       React + TypeScript + Vite web app (see frontend/CLAUDE.md)
+lambdas/        Standalone AWS Lambda functions (Phase 8.6 / 10.7 — not yet implemented)
+terraform/      Infrastructure as code for LocalStack and real AWS (Phase 8.7 / 10.2 — not yet implemented)
+observability/  Prometheus, Grafana, Loki and Alloy configuration
+docs/           Architecture plan and other project documentation
 ```
 
 Everything lives in one repository deliberately — see the "Monorepo structure decision" in the [architecture plan](docs/implementation-plans/architecture-evolution.md#2-target-architecture-end-state) for the reasoning.
 
 ## Tech stack
 
-**Backend** — Node.js, Express, TypeScript, Sequelize (PostgreSQL), Awilix (dependency injection), Zod (validation), Pino (structured logging).
+**Backend** — Node.js, Express, TypeScript, Sequelize (PostgreSQL), Awilix (dependency injection), Zod (validation), Pino (structured logging), OpenTelemetry (tracing), prom-client (metrics), Sentry (error tracking).
 
 **Frontend** — React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, axios.
 
-**Local infrastructure** — Docker Compose, PostgreSQL, Kafka (3-node KRaft cluster, `kafkajs` client) + kafka-ui.
+**Local infrastructure** — Docker Compose, PostgreSQL, Kafka (3-node KRaft cluster, `kafkajs` client) + kafka-ui, and an observability stack: Jaeger, Prometheus + kafka-exporter, Loki + Grafana Alloy, Grafana.
 
 ## System Design
 
@@ -64,6 +65,14 @@ docker compose exec champsly-backend npm run migrate
 | PostgreSQL | localhost:5432 | db `champsly`, user `user` |
 | Kafka | localhost:19092 / 29092 / 39092 | 3-node KRaft cluster |
 | kafka-ui | http://localhost:8080 | optional: `docker compose --profile tools up -d kafka-ui` |
+| Health | http://localhost:4001/health, http://localhost:4001/health/ready | liveness / readiness (readiness checks the database) |
+| Metrics | http://localhost:4001/metrics | Prometheus scrape endpoint |
+| Grafana | http://localhost:3000 | tournament dashboard; anonymous view, `admin`/`admin` to edit |
+| Jaeger | http://localhost:16686 | traces |
+| Prometheus | http://localhost:9090 | metrics |
+| Grafana Alloy | http://localhost:12345 | log pipeline UI (logs are stored in Loki, queried from Grafana) |
+
+Error tracking is optional: set `SENTRY_DSN` in `backend/.env` to a sentry.io project's DSN to send errors there; Sentry stays off when it is empty.
 
 Source changes on the host are picked up live in both containers — no rebuild needed for day-to-day development. See `backend/CLAUDE.md` for details on the Docker dev workflow (in particular, why `npm install` for a new backend dependency has to run *inside* the container, not on the host).
 
@@ -74,35 +83,41 @@ Routes are versioned under `/api/v1` (with one `/api/v2` route as a worked examp
 ## Architecture
 
 ```
-Request → Controller → Interactor (business logic) → Repository → Sequelize Model → PostgreSQL
+Request → Controller → CommandBus / QueryBus → Command / Query Handler → Repository → Sequelize Model → PostgreSQL
 ```
 
-A three-layer clean architecture wired together with constructor injection (Awilix): controllers are thin HTTP handlers, interactors hold all business logic, and repositories are the only layer that talks to Sequelize — accessed by interactors through TypeScript interfaces (`src/shared/repositories/*.types.ts`), not concrete classes, so the data layer can be swapped or faked in tests without touching business logic.
+A layered clean architecture with CQRS, wired together with constructor injection (Awilix): controllers are thin HTTP handlers that dispatch a command or query through the `CommandBus` / `QueryBus`, command handlers hold the write-side business logic (committing domain events to the outbox in the same transaction), query handlers return DTOs from a separate read connection, and repositories are the only layer that talks to Sequelize — accessed by handlers through TypeScript interfaces (`src/shared/repositories/*.types.ts`), not concrete classes, so the data layer can be swapped or faked in tests without touching business logic.
 
 See `backend/CLAUDE.md` for the full layer/naming conventions and `frontend/CLAUDE.md` for the frontend's feature-slice structure.
 
 ### Architecture snapshot
 
-![Champsly architecture diagram — Phase 5 complete](docs/architecture-diagrams/v5.png)
+![Champsly architecture diagram — Phase 6 complete](docs/architecture-diagrams/v6.png)
 
-A snapshot as of Phase 5 completion: solid boxes are implemented and wired, including the new event-driven layer added in Phase 5. The Kafka placeholder is now a 3-node KRaft cluster (no Zookeeper; RF 3, `min.insync.replicas=2`). Command handlers write their domain events to an `outbox` table inside the same Postgres transaction as the aggregate change, and an `OutboxRelay` publishes them to Kafka, so an event is never lost between the DB write and the publish. Consumers react to those events (verification email, automatic phase completion), and group standings are now an event-sourced projection: a stream processor folds `match.result-recorded`/`match.deleted` into `group.standings` snapshots with exactly-once Kafka transactions, and a sink writes them to the `group_standings` table that queries read from. The dashed `kafka-ui` box is an optional tool started with the `tools` compose profile. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each remaining piece lands as later phases land, or the [Phase 4](docs/architecture-diagrams/v4.png) / [Phase 3](docs/architecture-diagrams/v3.png) / [Phase 2](docs/architecture-diagrams/v2.png) / [Phase 1](docs/architecture-diagrams/v1.png) diagrams for earlier snapshots.
+A snapshot as of Phase 6 completion: solid boxes are implemented and wired, including the new telemetry layer added in Phase 6 (olive). Inside the backend, an OpenTelemetry `NodeSDK` traces HTTP, Express, `pg` and `kafkajs` calls; Sentry reports unexpected errors and 5xx responses; `prom-client` exposes `GET /metrics`; Pino log lines carry the active `trace_id`; and `GET /health` / `GET /health/ready` report liveness and readiness (readiness fails only when the database is unreachable, never because of Kafka). Below it sits the observability stack the backend feeds: Jaeger, Prometheus with kafka-exporter for consumer lag, Alloy shipping container logs to Loki, Grafana on top of all three, and Sentry as an external SaaS. Trace context also survives the event-driven path: the outbox stores each event's `traceparent` and the relay sends it as a Kafka header, so a request, its relay publish and the consumers it triggers show up as one trace. The dashed `kafka-ui` box is an optional tool started with the `tools` compose profile. See the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) for where each remaining piece lands as later phases land, or the [Phase 5](docs/architecture-diagrams/v5.png) / [Phase 4](docs/architecture-diagrams/v4.png) / [Phase 3](docs/architecture-diagrams/v3.png) / [Phase 2](docs/architecture-diagrams/v2.png) / [Phase 1](docs/architecture-diagrams/v1.png) diagrams for earlier snapshots.
 
 ### Kafka topics
 
 ![Kafka topics in kafka-ui](docs/kafka-ui/topics.png)
 *The running cluster as seen in kafka-ui: one topic per domain event (`tournament.created`, `match.result-recorded`, `match.deleted`, `phase.completed`, `user.registered`), each with its own `.dlq`, plus the stream processor's compacted changelog and `group.standings` output. Every topic has 3 partitions and replication factor 3 with no out-of-sync replicas; `__transaction_state` is where Kafka tracks transactions, which lets the standings processor write each result all-or-nothing, so no update is lost or applied twice.*
 
+### Observability
+
+![Champsly backend and its observability tools](docs/observability/observability-scenario.png)
+*How the backend feeds each observability tool: it pushes spans to Jaeger and errors to Sentry, while Prometheus scrapes its metrics (and Kafka consumer lag through kafka-exporter) and Alloy collects its logs into Loki. Grafana queries traces, logs and metrics from one place. A more detailed [C4 container view](docs/observability/observability-c4.png) lists the ports and protocols.*
+
 ## Project status
 
-Phases 1 through 5 of the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) are complete:
+Phases 1 through 6 of the [architecture evolution plan](docs/implementation-plans/architecture-evolution.md) are complete:
 
 - **Phase 1 — Foundation Hardening:** environment config, global error handling, request validation, structured logging, API versioning, rate limiting, Docker Compose, a full TypeScript migration, and repository interfaces enforcing dependency inversion.
 - **Phase 2 — Entities & Value Objects (DDD-lite):** type-safe value objects (`TournamentStatus`, `MatchStatus`, `Score`, `PhaseType`), entity behavior moved onto the models (`Tournament.canStart/canFinish`, `Match.recordResult`, `Group.canAddPlayer`), standings computation extracted out of the repository into a pure service, `CreateTournamentInteractor` decoupled from other interactors, and an in-memory domain event bus (`TournamentCreated`, `MatchResultRecorded`, `PhaseCompleted`).
 - **Phase 3 — Authentication & Login:** bcrypt password hashing, short-lived JWT access tokens with rotating opaque refresh tokens (reuse of a rotated-away token triggers theft detection, killing the whole session chain), email verification with a resend flow, `authenticate.middleware.ts` and `TournamentOwnershipService` scoping every tournament/group/phase/match to its owner, per-route rate limiting plus Helmet/CSP, and the matching frontend: `AuthContext`, a shared `api-client` with a 401→refresh→retry interceptor, register/login/verify-email screens, and protected routes.
 - **Phase 4 — CQRS:** write interactors renamed to command handlers (16) and read interactors to query handlers (12), each dispatched through a `CommandBus`/`QueryBus` instead of controllers resolving them by name, query handlers returning DTOs (`src/application/dtos/`) instead of raw Sequelize rows, and a second `readModels` Sequelize connection with its own `*ReadRepository` set and read-bound `TournamentOwnershipService` — pointed at the same database today, repointable to a real read replica later via env vars alone.
 - **Phase 5 — Event-Driven Architecture with Kafka:** a 3-node KRaft Kafka cluster (plus `kafka-ui`), a `KafkaEventBus` on `kafkajs` with an event registry, `schemaVersion`ed events, retries and per-topic dead-letter queues, consumers for verification email and automatic phase completion, group standings rebuilt as an event-sourced projection by a stream processor with a changelog-backed state store and exactly-once Kafka transactions, and a transactional outbox (`TransactionManager`, `outbox` table, `OutboxRelay`, `processed_events` deduplication) so publishing is atomic with the Postgres write.
+- **Phase 6 — Observability:** OpenTelemetry tracing exported to Jaeger, with trace context carried through the outbox (`traceparent` column → Kafka header) so a request and the consumers it triggers form one trace; Sentry error tracking tagged with the same trace ID; Prometheus metrics (`/metrics`, HTTP latency, published events, tournaments by status) plus kafka-exporter for consumer lag; container logs shipped by Grafana Alloy to Loki; a provisioned Grafana with a tournament dashboard and trace links from logs; and `/health` / `/health/ready` endpoints for orchestrator probes.
 
-Phase 6 (observability) onward — testing, AWS deployment, Kubernetes — is planned but not yet started; see the plan for the full roadmap and the reasoning behind each step.
+Phase 7 (testing) onward — AWS via LocalStack, Kubernetes, real AWS deployment — is planned but not yet started; see the plan for the full roadmap and the reasoning behind each step.
 
 ## License
 

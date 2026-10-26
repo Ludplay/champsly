@@ -80,15 +80,17 @@ router.get('/', (req: Request, res: Response) => {
     res.sendStatus(200);
 });
 
+
+router.post('/auth/refresh', refreshController);
+
 // Tighter limit than the global one, covering every /auth/* route below (register,
-// verify-email, login, refresh, and the protected logout further down).
+// verify-email, login, and the protected logout further down).
 router.use('/auth', authLimiter);
 
 // Auth routes — the only ones reachable without a token (logout still needs one)
 router.post('/auth/register', validateMiddleware(registrationSchema), registrationController);
 router.post('/auth/verify-email', validateMiddleware(verifyEmailSchema), verifyEmailController);
 router.post('/auth/login', validateMiddleware(loginSchema), loginController);
-router.post('/auth/refresh', refreshController);
 router.post('/auth/resend-verification', validateMiddleware(resendVerificationSchema), resendVerificationController);
 
 // Every route below this line requires a valid `Authorization: Bearer <token>`.

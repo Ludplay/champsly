@@ -5,6 +5,7 @@ import type { DomainEvent } from '../../../shared/events/domain-event';
 import type { OutboxRepository, OutboxRelayRepository } from '../../../shared/repositories/outbox.types';
 import type { RequiredTransactionOptions } from '../../../shared/persistence/transaction-manager.types';
 import { buildEventRecord } from '../events/event-registry';
+import { getActiveTraceparent } from '../../observability/trace-context';
 
 class SequelizeOutboxRepository implements OutboxRepository, OutboxRelayRepository {
     private outboxMessageModel: typeof OutboxMessage;
@@ -22,7 +23,8 @@ class SequelizeOutboxRepository implements OutboxRepository, OutboxRelayReposito
             message_key: eventRecord.key,
             event_type: eventRecord.eventType,
             payload: eventRecord.envelope,
-            occurred_on: event.occurredOn
+            occurred_on: event.occurredOn,
+            traceparent: getActiveTraceparent()
         };
 
         await this.outboxMessageModel.create(outboxRow, options);
